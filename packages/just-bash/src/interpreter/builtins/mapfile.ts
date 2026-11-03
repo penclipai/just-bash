@@ -21,11 +21,12 @@ import { checkReadonlyError } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
-export function handleMapfile(
+export async function handleMapfile(
   ctx: InterpreterContext,
   args: string[],
   stdin: string,
-): ExecResult {
+  stdinSourceFd = -1,
+): Promise<ExecResult> {
   // Parse options
   let delimiter = "\n";
   let maxCount = 0; // 0 = unlimited
@@ -78,6 +79,28 @@ export function handleMapfile(
   let effectiveStdin = stdin;
   if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
     effectiveStdin = ctx.state.groupStdin;
+  }
+  const liveInput = ctx.state.fdInputSessions?.get(stdinSourceFd);
+  if (liveInput?.readMore) {
+    let position = 0;
+    let count = 0;
+    for (;;) {
+      let next = liveInput.remaining.indexOf(delimiter, position);
+      while (next >= 0) {
+        position = next + delimiter.length;
+        count++;
+        if (maxCount > 0 && count >= skipCount + maxCount) break;
+        next = liveInput.remaining.indexOf(delimiter, position);
+      }
+      if (maxCount > 0 && count >= skipCount + maxCount) {
+        effectiveStdin = liveInput.remaining.slice(0, position);
+        break;
+      }
+      if (!(await liveInput.readMore(ctx.state.signal))) {
+        effectiveStdin = liveInput.remaining;
+        break;
+      }
+    }
   }
 
   // Split input by delimiter

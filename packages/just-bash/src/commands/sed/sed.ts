@@ -13,6 +13,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   createInitialState,
@@ -567,7 +568,9 @@ export const sedCommand: RuntimeCommand = {
     // UTF-8 so multibyte sequences match as single chars rather than several
     // latin1 bytes.
     if (files.length === 0) {
-      content = decodeBytesToUtf8(ctx.stdin);
+      content = decodeBytesToUtf8(
+        await withDefenseContext("stdin read", () => readStdin(ctx)),
+      );
       const result = await withDefenseContext("stdin processing", () =>
         processContent(content, commands, effectiveSilent, {
           limits: ctx.limits,
@@ -595,7 +598,9 @@ export const sedCommand: RuntimeCommand = {
         if (stdinConsumed) {
           fileContent = "";
         } else {
-          fileContent = decodeBytesToUtf8(ctx.stdin);
+          fileContent = decodeBytesToUtf8(
+            await withDefenseContext("stdin read", () => readStdin(ctx)),
+          );
           stdinConsumed = true;
         }
       } else {

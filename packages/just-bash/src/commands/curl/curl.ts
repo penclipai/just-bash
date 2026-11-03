@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 // Automa modifications: N00b binary uploads and visible partial header output.
 /**
  * curl - Transfer data from or to a server
@@ -67,7 +68,9 @@ async function resolveData(
         if (part.file.path === "-") {
           parts.push(
             toBuffer(
-              latin1FromBytes(stdinConsumed ? EMPTY_BYTES : ctx.stdin),
+              latin1FromBytes(
+                stdinConsumed ? EMPTY_BYTES : await readStdin(ctx),
+              ),
               "binary",
             ),
           );
@@ -83,7 +86,9 @@ async function resolveData(
       }
       const content =
         part.file.path === "-"
-          ? decodeBytesToUtf8(stdinConsumed ? EMPTY_BYTES : ctx.stdin)
+          ? decodeBytesToUtf8(
+              stdinConsumed ? EMPTY_BYTES : await readStdin(ctx),
+            )
           : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, part.file.path));
       if (part.file.path === "-") stdinConsumed = true;
       if (part.file.mode === "ascii") {

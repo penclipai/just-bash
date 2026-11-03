@@ -1,3 +1,4 @@
+import { createLiveInput } from "./interpreter/live-input.js";
 import { createOutputSink } from "./output-sink.js";
 import { BASH_VERSION, bashVersionInfo } from "./shell-metadata.js";
 /**
@@ -83,6 +84,7 @@ import type {
 import type {
   BashExecResult,
   Command,
+  CommandExecOptions,
   CommandRegistry,
   EnvironmentInfo,
   FeatureCoverageWriter,
@@ -295,6 +297,8 @@ export interface BashOptions {
 }
 
 export interface ExecOptions {
+  stdinSource?: CommandExecOptions["stdinSource"];
+  onOutputBytes?: CommandExecOptions["onOutputBytes"];
   /** Automa: ordered terminal output flushed at command boundaries. */
   onOutput?: (
     text: string,
@@ -728,13 +732,29 @@ export class Bash {
     shouldLogResult = true,
     callerState?: InterpreterState,
     inputSession?: SharedInputSession,
+    inheritedOutput = executionScope.automaOutput,
   ): Promise<BashExecResult> {
-    const finishResult = (result: BashExecResult): BashExecResult =>
-      shouldLogResult ? this.logResult(result) : result;
+    const ownOutput = options?.onOutputBytes
+      ? createOutputSink(executionScope, undefined, options.onOutputBytes)
+      : undefined;
+    const output = ownOutput ?? inheritedOutput;
+    const finishResult = async (
+      result: BashExecResult,
+    ): Promise<BashExecResult> => {
+      const final = ownOutput ? await ownOutput.finish(result) : result;
+      return shouldLogResult ? this.logResult(final) : final;
+    };
     const combinedAbort = combineAbortSignals(parentSignal, options?.signal);
     const effectiveOptions = options
       ? { ...options, signal: combinedAbort.signal }
       : { signal: combinedAbort.signal };
+    if (effectiveOptions.stdinSource)
+      inputSession = createLiveInput(
+        effectiveOptions.stdinSource,
+        executionScope,
+        effectiveOptions.signal,
+        this.limits.maxStringLength,
+      );
 
     try {
       executionScope.assertExecDepth(execDepth);
@@ -948,6 +968,7 @@ export class Bash {
             commands: this.commands,
             limits: this.limits,
             executionScope,
+            output,
             inputSession,
             environmentInfo: this.environmentInfo,
             virtualFileMetadata: this.virtualFileMetadata,
@@ -967,6 +988,7 @@ export class Bash {
                 true,
                 execState,
                 childInputSession,
+                output,
               ),
             fetch: this.secureFetch,
             sleep: this.sleepFn,

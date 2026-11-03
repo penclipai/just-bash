@@ -15,6 +15,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { accountFileInput } from "../../utils/file-reader.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 
@@ -249,7 +250,7 @@ export const xargsCommand: RuntimeCommand = {
     try {
       let stdinText: string;
       if (argFile === null) {
-        stdinText = decodeBytesToUtf8(ctx.stdin);
+        stdinText = decodeBytesToUtf8(await readStdin(ctx));
       } else {
         try {
           const path = ctx.fs.resolvePath(ctx.cwd, argFile);
@@ -432,7 +433,8 @@ export const xargsCommand: RuntimeCommand = {
             cwd: ctx.cwd,
             signal: ctx.signal,
             args: cmdArgs.slice(1),
-            stdin: argFile === null ? "" : latin1FromBytes(ctx.stdin),
+            stdin:
+              argFile === null ? "" : latin1FromBytes(await readStdin(ctx)),
             stdinKind: "bytes",
           });
         }

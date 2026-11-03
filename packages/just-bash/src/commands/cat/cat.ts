@@ -8,6 +8,7 @@ import type {
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { accountFileInput } from "../../utils/file-reader.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const catHelp = {
@@ -113,9 +114,34 @@ export const catCommand: RuntimeCommand = {
     let stream = "";
     for (const file of inputs) {
       try {
+        if (
+          file === "-" &&
+          !transform &&
+          ctx.readStdinChunk &&
+          ctx.writeOutput
+        ) {
+          for (;;) {
+            const chunk = await ctx.readStdinChunk();
+            if (chunk === null) break;
+            const bytes = latin1FromBytes(chunk);
+            const limit = Math.min(maxOutputSize, ctx.limits.maxInputBytes);
+            if (bytes.length > limit - aggregateInputBytes)
+              throw new ExecutionLimitError(
+                "cat: output size limit exceeded",
+                "output_size",
+              );
+            aggregateInputBytes += bytes.length;
+            if (stream) {
+              await ctx.writeOutput(stream, "stdout", "bytes");
+              stream = "";
+            }
+            await ctx.writeOutput(bytes, "stdout", "bytes");
+          }
+          continue;
+        }
         const content =
           file === "-"
-            ? ctx.stdin
+            ? await readStdin(ctx)
             : await readBytesFrom(ctx.fs, ctx.fs.resolvePath(ctx.cwd, file));
         const rawContent = latin1FromBytes(content);
         const contentLength = rawContent.length;

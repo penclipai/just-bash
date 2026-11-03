@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * unexpand - convert spaces to tabs
  *
@@ -267,7 +268,7 @@ export const unexpand: RuntimeCommand = {
     if (files.length === 0) {
       // unexpand counts column positions for tab-stop math; decode bytes so
       // a multibyte char doesn't pretend to be several columns wide.
-      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+      const input = decodeBytesToUtf8(await readStdin(ctx)) ?? "";
       output = processContent(input, options);
     } else {
       for (const file of files) {

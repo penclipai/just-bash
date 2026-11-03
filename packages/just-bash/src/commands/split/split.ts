@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * split - split a file into pieces
  *
@@ -434,13 +435,13 @@ export const split: RuntimeCommand = {
     let inputPath: string | null = null;
     let contentLease: ResourceLease | undefined;
     if (inputFile === "-") {
-      const inputLength = latin1FromBytes(ctx.stdin).length;
+      const inputLength = latin1FromBytes(await readStdin(ctx)).length;
       contentLease = ctx.executionScope?.reserveBytes(
         "split transaction",
         inputLength * 2,
         "split",
       );
-      content = toUint8Array(latin1FromBytes(ctx.stdin));
+      content = toUint8Array(latin1FromBytes(await readStdin(ctx)));
     } else {
       inputPath = ctx.fs.resolvePath(ctx.cwd, inputFile);
       try {

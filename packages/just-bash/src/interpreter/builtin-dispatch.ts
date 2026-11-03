@@ -6,6 +6,7 @@ import { automaTrapBuiltin } from "./traps.js";
  * Separated from interpreter.ts for modularity.
  */
 
+import { combineAbortSignals } from "../abort-signals.js";
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
 import { isSafeKey } from "../commands/query-engine/safe-object.js";
 import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
@@ -325,6 +326,8 @@ function createRevocableCommandContext(
       context.coverage ? wrapCapability(context.coverage) : undefined,
     ),
     writeOutput: dataDescriptor(wrapFunction(context.writeOutput)),
+    readStdin: dataDescriptor(wrapFunction(context.readStdin)),
+    readStdinChunk: dataDescriptor(wrapFunction(context.readStdinChunk)),
     assignShellVariable: dataDescriptor(
       wrapFunction(context.assignShellVariable),
     ),
@@ -553,7 +556,7 @@ export async function dispatchBuiltin(
     return handleRead(ctx, args, stdin, stdinSourceFd);
   }
   if (commandName === "mapfile" || commandName === "readarray") {
-    return handleMapfile(ctx, args, stdin);
+    return handleMapfile(ctx, args, stdin, stdinSourceFd);
   }
   if (commandName === "declare" || commandName === "typeset") {
     return handleDeclare(ctx, args);
@@ -621,6 +624,7 @@ export async function dispatchBuiltin(
       stdinRedirected,
       stdinProvided,
       stdinUnavailable,
+      stdinSourceFd,
     );
   }
   if (commandName === "builtin") {
@@ -631,6 +635,7 @@ export async function dispatchBuiltin(
       stdinRedirected,
       stdinProvided,
       stdinUnavailable,
+      stdinSourceFd,
     );
   }
   if (commandName === "shopt") {
@@ -651,7 +656,7 @@ export async function dispatchBuiltin(
       stdin,
       false,
       false,
-      -1,
+      stdinSourceFd,
       stdinRedirected,
       stdinProvided,
       stdinUnavailable,
@@ -709,6 +714,7 @@ async function handleCommandBuiltin(
   stdinRedirected = false,
   stdinProvided = false,
   stdinUnavailable = false,
+  stdinSourceFd = -1,
 ): Promise<ExecResult> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -760,7 +766,7 @@ async function handleCommandBuiltin(
     stdin,
     true,
     useDefaultPath,
-    -1,
+    stdinSourceFd,
     stdinRedirected,
     stdinProvided,
     stdinUnavailable,
@@ -778,6 +784,7 @@ async function handleBuiltinBuiltin(
   stdinRedirected = false,
   stdinProvided = false,
   stdinUnavailable = false,
+  stdinSourceFd = -1,
 ): Promise<ExecResult> {
   const { runCommand } = dispatchCtx;
 
@@ -808,7 +815,7 @@ async function handleBuiltinBuiltin(
     stdin,
     true,
     false,
-    -1,
+    stdinSourceFd,
     stdinRedirected,
     stdinProvided,
     stdinUnavailable,
@@ -827,6 +834,7 @@ export async function executeExternalCommand(
   useDefaultPath: boolean,
   stdinProvided = false,
   stdinUnavailable = false,
+  stdinSourceFd = -1,
 ): Promise<ExecResult> {
   const { ctx, buildExportedEnv, executeUserScript } = dispatchCtx;
 
@@ -887,6 +895,56 @@ export async function executeExternalCommand(
   );
   let stdinAccessed = false;
   let inheritedInputSession: SharedInputSession | undefined;
+  const liveInput = ctx.state.fdInputSessions?.get(stdinSourceFd);
+  let bufferedInput: Promise<import("../encoding.js").ByteString> | undefined;
+  let staticRead = false;
+  const readStdinChunk = async (signal?: AbortSignal) => {
+    const combined = combineAbortSignals(ctx.state.signal, signal);
+    try {
+      if (combined.signal?.aborted)
+        throw new ExecutionAbortedError("", "bash: stdin read aborted\n");
+      if (!liveInput?.readMore) {
+        if (staticRead) return null;
+        staticRead = true;
+        stdinAccessed = true;
+        return latin1FromBytes(effectiveStdin).length ? effectiveStdin : null;
+      }
+      while (!liveInput.remaining)
+        if (!(await liveInput.readMore(combined.signal))) return null;
+      const chunk = liveInput.remaining;
+      liveInput.remaining = "";
+      return unsafeBytesFromLatin1(chunk);
+    } finally {
+      combined.cleanup();
+    }
+  };
+  const readStdin = (signal?: AbortSignal) => {
+    bufferedInput ??= (async () => {
+      const combined = combineAbortSignals(ctx.state.signal, signal);
+      try {
+        if (combined.signal?.aborted)
+          throw new ExecutionAbortedError("", "bash: stdin read aborted\n");
+        if (!liveInput?.readMore) {
+          if (staticRead) return unsafeBytesFromLatin1("");
+          staticRead = true;
+          stdinAccessed = true;
+          return effectiveStdin;
+        }
+        while (await liveInput.readMore(combined.signal)) {
+          /* Wait for the complete input. */
+        }
+        const value = liveInput.remaining;
+        liveInput.remaining = "";
+        return unsafeBytesFromLatin1(value);
+      } finally {
+        combined.cleanup();
+      }
+    })().catch((error) => {
+      bufferedInput = undefined;
+      throw error;
+    });
+    return bufferedInput;
+  };
 
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state
@@ -895,7 +953,7 @@ export async function executeExternalCommand(
   // Give extensions one stable, revocable descriptor capability even when
   // this invocation has not created any extra descriptors yet.
   ctx.state.fileDescriptors ??= new Map();
-  const observeWrite = ctx.executionScope.automaOutput?.commandWriter();
+  const observeWrite = ctx.output?.commandWriter();
   let streamed: ExecutionOutputAccumulator | undefined;
   const finishOutput = (result: ExecResult): ExecResult => {
     if (!streamed) return result;
@@ -986,15 +1044,19 @@ export async function executeExternalCommand(
       stdinAccessed = true;
       return effectiveStdin;
     },
+    readStdin,
+    readStdinChunk,
     stdinProvided: commandStdinProvided,
     stdinUnavailable,
     limits: ctx.limits,
     executionScope: cmd.internalIsExtension
-      ? createCommandExecutionBudget(ctx.executionScope)
+      ? createCommandExecutionBudget(ctx.executionScope, ctx.output)
       : ctx.executionScope,
     exec: (script, options) => ctx.execFn(script, options, false),
     execWithInheritedStdin: (script, options) => {
-      inheritedInputSession ??= { remaining: latin1FromBytes(effectiveStdin) };
+      inheritedInputSession ??= liveInput?.readMore
+        ? liveInput
+        : { remaining: latin1FromBytes(effectiveStdin) };
       return ctx.execFn(script, options, true, inheritedInputSession);
     },
     fetch: ctx.fetch,
@@ -1075,15 +1137,16 @@ export async function executeExternalCommand(
       : await runBoundedCommand();
     return {
       ...finishOutput(commandResult),
-      internalStdinConsumed:
-        commandResult.internalStdinConsumed ??
-        Math.max(
-          stdinAccessed ? stdin.length : 0,
-          inheritedInputSession
-            ? latin1FromBytes(effectiveStdin).length -
-                inheritedInputSession.remaining.length
-            : 0,
-        ),
+      internalStdinConsumed: liveInput?.readMore
+        ? 0
+        : (commandResult.internalStdinConsumed ??
+          Math.max(
+            stdinAccessed ? stdin.length : 0,
+            inheritedInputSession
+              ? latin1FromBytes(effectiveStdin).length -
+                  inheritedInputSession.remaining.length
+              : 0,
+          )),
     };
   } catch (error) {
     streamed?.prependTo(error);

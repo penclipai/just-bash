@@ -131,6 +131,7 @@ function unsupportedCommandNode(node: never): never {
 export type { InterpreterContext, InterpreterState } from "./types.js";
 
 export interface InterpreterOptions {
+  output?: InterpreterContext["output"];
   environmentInfo?: InterpreterContext["environmentInfo"];
   virtualFileMetadata?: InterpreterContext["virtualFileMetadata"];
   fs: IFileSystem;
@@ -171,6 +172,7 @@ export class Interpreter {
 
   constructor(options: InterpreterOptions, state: InterpreterState) {
     this.ctx = {
+      output: options.output ?? options.executionScope.automaOutput,
       environmentInfo: options.environmentInfo,
       virtualFileMetadata: options.virtualFileMetadata,
       state,
@@ -582,8 +584,8 @@ export class Interpreter {
   ): Promise<ExecResult> {
     const execute = () =>
       this.executeCommandWithSubstitutions(node, stdin, stdinOwned);
-    return this.ctx.executionScope.automaOutput
-      ? this.ctx.executionScope.automaOutput.capture(this.ctx, node, execute)
+    return this.ctx.output
+      ? this.ctx.output.capture(this.ctx, node, execute)
       : execute();
   }
 
@@ -991,9 +993,7 @@ export class Interpreter {
       }
       return preparedRedirectionError(preparedRedirections);
     }
-    this.ctx.executionScope.automaOutput?.setCommandRoutes(
-      preparedRedirections.outputRoutes,
-    );
+    this.ctx.output?.setCommandRoutes(preparedRedirections.outputRoutes);
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
     // Builtins (eval, functions, wrappers) treat any fd-0 route as ownership,
     // including one a persistent `exec <` set up earlier. External commands
@@ -1252,6 +1252,7 @@ export class Interpreter {
       useDefaultPath,
       stdinProvided,
       stdinUnavailable,
+      stdinSourceFd,
     );
     return { ...externalResult, internalProducerCommand: commandName };
   }

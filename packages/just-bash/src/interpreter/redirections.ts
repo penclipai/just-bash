@@ -1402,7 +1402,7 @@ export async function applyRedirections(
   }
 
   const finalResult = makeResult(stdout, stderr, exitCode);
-  ctx.executionScope.automaOutput?.route(result, fd1Sink, fd2Sink);
+  ctx.output?.route(result, fd1Sink, fd2Sink);
   finalResult.internalOutputSegments = routed;
   // Preserve the upstream's stdout shape through the redirection layer so
   // the next stage (pipeline glue, output boundary) can tell bytes-shaped

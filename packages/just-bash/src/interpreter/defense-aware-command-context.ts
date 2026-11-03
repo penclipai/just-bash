@@ -244,6 +244,33 @@ export function createDefenseAwareCommandContext(
     );
   }
 
+  if (ctx.execWithInheritedStdin) {
+    wrappedCtx.execWithInheritedStdin = wrapFunction(
+      ctx.execWithInheritedStdin,
+      ctx.requireDefenseContext,
+      component,
+      "execWithInheritedStdin",
+    );
+  }
+
+  if (ctx.readStdin) {
+    wrappedCtx.readStdin = wrapFunction(
+      ctx.readStdin,
+      ctx.requireDefenseContext,
+      component,
+      "readStdin",
+    );
+  }
+
+  if (ctx.readStdinChunk) {
+    wrappedCtx.readStdinChunk = wrapFunction(
+      ctx.readStdinChunk,
+      ctx.requireDefenseContext,
+      component,
+      "readStdinChunk",
+    );
+  }
+
   if (ctx.origCommand) {
     wrappedCtx.origCommand = wrapFunction(
       ctx.origCommand,

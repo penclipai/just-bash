@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * jq - RuntimeCommand-line JSON processor
  *
@@ -466,7 +467,9 @@ export const jqCommand: RuntimeCommand = {
       if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
         inputs.push({
           source: "<stdin>",
-          content: decodeBytesToUtf8(ctx.stdin),
+          content: decodeBytesToUtf8(
+            await withDefenseContext("stdin read", () => readStdin(ctx)),
+          ),
         });
       } else {
         let stdinRead = false;

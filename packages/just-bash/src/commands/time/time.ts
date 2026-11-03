@@ -8,6 +8,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 
 /**
  * time - time command execution
@@ -121,15 +122,20 @@ export const timeCommand: RuntimeCommand = {
           exitCode: 1,
         };
       }
-      result = await ctx.exec(shellJoinArgs([commandArgs[0]]), {
-        env: mapToRecord(ctx.env),
-        cwd: ctx.cwd,
-        stdin: latin1FromBytes(ctx.stdin),
-        // ctx.stdin is already byte-shaped — forward verbatim.
-        stdinKind: "bytes",
-        signal: ctx.signal,
-        args: commandArgs.slice(1),
-      });
+      result = await (ctx.execWithInheritedStdin ?? ctx.exec)(
+        shellJoinArgs([commandArgs[0]]),
+        {
+          env: mapToRecord(ctx.env),
+          cwd: ctx.cwd,
+          stdin: ctx.execWithInheritedStdin
+            ? undefined
+            : latin1FromBytes(await readStdin(ctx)),
+          // Standalone command contexts forward the buffered byte input.
+          stdinKind: "bytes",
+          signal: ctx.signal,
+          args: commandArgs.slice(1),
+        },
+      );
     } catch (error) {
       const message = sanitizeErrorMessage((error as Error).message);
       result = {

@@ -1,3 +1,4 @@
+import { readStdin } from "./read-stdin.js";
 /**
  * File reading utilities for command implementations.
  *
@@ -90,7 +91,7 @@ export async function readFiles(
   // No files - read from stdin
   if (files.length === 0) {
     return {
-      files: [{ filename: "", content: ctx.stdin }],
+      files: [{ filename: "", content: await readStdin(ctx) }],
       stderr: "",
       exitCode: 0,
     };
@@ -108,7 +109,7 @@ export async function readFiles(
         if (allowStdinMarker && file === "-") {
           return {
             filename: "-",
-            content: ctx.stdin,
+            content: await readStdin(ctx),
             error: null as string | null,
           };
         }

@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 // Automa modifications: N00b bounded rg ordering and zero-directory globstar.
 /**
  * Core search logic for rg command
@@ -191,8 +192,8 @@ export async function executeSearch(
         let contentBytes: number;
 
         if (patternFile === "-") {
-          rawContent = ctx.stdin;
-          contentBytes = latin1FromBytes(ctx.stdin).length;
+          rawContent = await readStdin(ctx);
+          contentBytes = latin1FromBytes(await readStdin(ctx)).length;
           aggregatePatternInputBytes = accountPatternInput(
             ctx,
             contentBytes,
@@ -289,7 +290,7 @@ export async function executeSearch(
   // Skip when `-f -` already consumed stdin for patterns to avoid
   // double-consuming it as both pattern source and search input.
   const stdinConsumedByPatternFile = options.patternFiles.includes("-");
-  const stdinText = decodeSearchText(ctx.stdin);
+  const stdinText = decodeSearchText(await readStdin(ctx));
   // Ripgrep treats character devices and closed descriptors as absent input.
   // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/cli/src/lib.rs#L204-L208
   if (

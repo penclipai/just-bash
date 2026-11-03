@@ -468,14 +468,15 @@ export class ExecutionScope {
 /** Build a least-authority view for command implementations. */
 export function createCommandExecutionBudget(
   scope: ExecutionScope,
+  output: ExecutionScope["automaOutput"] = scope.automaOutput,
 ): CommandExecutionBudget {
   const budget = Object.create(null) as CommandExecutionBudget;
   Object.defineProperties(budget, {
     automaOutput: {
       enumerable: true,
-      value: scope.automaOutput
+      value: output
         ? Object.freeze({
-            buffer: scope.automaOutput.buffer.bind(scope.automaOutput),
+            buffer: output.buffer.bind(output),
           })
         : undefined,
     },

@@ -5,6 +5,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const envHelp = {
@@ -118,12 +119,14 @@ export const envCommand: RuntimeCommand = {
 
     // Execute with explicitly provided environment so untrusted values never
     // get reparsed as shell source via assignment prefixes.
-    return ctx.exec("command", {
+    return (ctx.execWithInheritedStdin ?? ctx.exec)("command", {
       cwd: ctx.cwd,
       env: mapToRecord(newEnv),
       replaceEnv: true,
-      stdin: latin1FromBytes(ctx.stdin),
-      // ctx.stdin is already byte-shaped — forward verbatim.
+      stdin: ctx.execWithInheritedStdin
+        ? undefined
+        : latin1FromBytes(await readStdin(ctx)),
+      // Standalone command contexts forward the buffered byte input.
       stdinKind: "bytes",
       signal: ctx.signal,
       args: cmdArgs,

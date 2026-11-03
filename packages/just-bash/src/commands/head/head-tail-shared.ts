@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * Shared utilities for head and tail commands.
  */
@@ -134,7 +135,7 @@ export async function processHeadTailFiles(
   // `-c` byte slices are byte-safe over the latin1 view, and the output is
   // marked binary so the pipeline glue / redirects don't UTF-8 re-encode it.
   if (files.length === 0) {
-    const content = latin1FromBytes(ctx.stdin);
+    const content = latin1FromBytes(await readStdin(ctx));
     const stdout = contentProcessor(content);
     return {
       stdout,

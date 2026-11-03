@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /** js-exec - Execute JavaScript code via the run package. */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
@@ -148,8 +149,8 @@ export const jsExecCommand: RuntimeCommand = {
           stdout: "",
         };
       }
-    } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
-      source = decodeBytesToUtf8(ctx.stdin);
+    } else if (decodeBytesToUtf8(await readStdin(ctx)).trim()) {
+      source = decodeBytesToUtf8(await readStdin(ctx));
       scriptPath = "<stdin>";
     } else {
       return {

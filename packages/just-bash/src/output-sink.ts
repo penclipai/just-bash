@@ -28,6 +28,11 @@ const decode = (value: string) =>
 export function createOutputSink(
   scope: ExecutionScope,
   callback?: (text: string, stream: Stream) => void | Promise<void>,
+  rawCallback?: (
+    text: string,
+    stream: Stream,
+    kind: "text" | "bytes",
+  ) => void | Promise<void>,
 ) {
   const counts = { stdout: 0, stderr: 0 };
   const chunks: string[] = [];
@@ -148,6 +153,7 @@ export function createOutputSink(
       return;
     part.emitted = true;
     counts[stream] += text.length;
+    if (rawCallback) await rawCallback(text, stream, part.kind ?? "text");
     if (part.kind === "bytes") await write(text, stream);
     else {
       await flushPending();

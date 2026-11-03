@@ -9,6 +9,7 @@ import type {
   OutputSegment,
   RuntimeCommandContext,
 } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 
 export interface ChecksumIO {
   check(units?: number): void;
@@ -100,7 +101,7 @@ export function checksumIO(
         file === "-"
           ? stdinRead
             ? ""
-            : latin1FromBytes(ctx.stdin)
+            : latin1FromBytes(await readStdin(ctx))
           : undefined;
       if (raw !== undefined) stdinRead = true;
       const size =

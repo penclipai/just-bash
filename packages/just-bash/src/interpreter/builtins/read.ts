@@ -2,7 +2,10 @@
  * read - Read a line of input builtin
  */
 
+import { combineAbortSignals } from "../../abort-signals.js";
 import { utf8ByteLength } from "../../encoding.js";
+import { _performanceNow } from "../../security/trusted-globals.js";
+import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../../timers.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError } from "../errors.js";
 import { advanceFd, getFdEntry, readFd } from "../fd-table.js";
@@ -16,12 +19,12 @@ import { checkReadonlyError } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
-export function handleRead(
+export async function handleRead(
   ctx: InterpreterContext,
   args: string[],
   stdin: string,
   stdinSourceFd = -1,
-): ExecResult {
+): Promise<ExecResult> {
   // Parse options
   let raw = false;
   let delimiter = "\n";
@@ -274,6 +277,53 @@ export function handleRead(
   // Handle -d '' (empty delimiter) - reads until NUL byte
   // Empty string delimiter means read until NUL byte (\0)
   const effectiveDelimiter = delimiter === "" ? "\0" : delimiter;
+  const liveInput = ctx.state.fdInputSessions?.get(
+    readsFromFd ? fileDescriptor : stdinSourceFd,
+  );
+  let timedOut = false;
+  if (liveInput?.readMore) {
+    const complete = (input: string): boolean => {
+      if (ncharsExact >= 0) return input.length >= ncharsExact;
+      if (nchars === 0) return true;
+      let characters = 0;
+      for (let position = 0; position < input.length; position++) {
+        let character = input[position];
+        if (character === effectiveDelimiter) return true;
+        if (!raw && character === "\\") {
+          if (position + 1 === input.length) return false;
+          character = input[++position];
+          if (character === "\n" && (nchars < 0 || effectiveDelimiter === "\n"))
+            continue;
+        }
+        if (++characters === nchars) return true;
+      }
+      return false;
+    };
+    const deadline =
+      timeout > 0 ? _performanceNow() + timeout * 1000 : Infinity;
+    while (!complete(liveInput.remaining)) {
+      let timer: ReturnType<typeof _setTimeoutIfFinite>;
+      const controller = new AbortController();
+      const combined = combineAbortSignals(ctx.state.signal, controller.signal);
+      try {
+        const more = await Promise.race([
+          liveInput.readMore(combined.signal),
+          new Promise<false>((resolve) => {
+            timer = _setTimeoutIfFinite(() => {
+              timedOut = true;
+              resolve(false);
+              controller.abort();
+            }, deadline - _performanceNow());
+          }),
+        ]);
+        if (!more) break;
+      } finally {
+        _clearFiniteTimeout(timer);
+        combined.cleanup();
+      }
+    }
+    effectiveStdin = liveInput.remaining;
+  }
 
   // Get input
   let line = "";
@@ -335,7 +385,7 @@ export function handleRead(
     for (let j = 1; j < varNames.length; j++) {
       ctx.state.env.set(varNames[j], "");
     }
-    return result("", "", foundDelimiter ? 0 : 1);
+    return result("", "", timedOut ? 142 : foundDelimiter ? 0 : 1);
   } else if (nchars >= 0) {
     // -n: Read at most N characters (or until delimiter/EOF), then apply IFS splitting
     // In non-raw mode, backslash escapes are processed: \X counts as 1 char (the X)
@@ -445,7 +495,7 @@ export function handleRead(
         if (arrayName) {
           clearArray(ctx, arrayName);
         }
-        return result("", "", 1);
+        return result("", "", timedOut ? 142 : 1);
       }
     }
 
@@ -468,7 +518,7 @@ export function handleRead(
   // This preserves leading/trailing whitespace
   if (varNames.length === 1 && varNames[0] === "REPLY") {
     ctx.state.env.set("REPLY", processBackslashEscapes(line));
-    return result("", "", foundDelimiter ? 0 : 1);
+    return result("", "", timedOut ? 142 : foundDelimiter ? 0 : 1);
   }
 
   // Split by IFS (default is space, tab, newline)
@@ -491,7 +541,7 @@ export function handleRead(
     for (let j = 0; j < words.length; j++) {
       setArrayElement(ctx, arrayName, j, processBackslashEscapes(words[j]));
     }
-    return result("", "", foundDelimiter ? 0 : 1);
+    return result("", "", timedOut ? 142 : foundDelimiter ? 0 : 1);
   }
 
   // Use the advanced IFS splitting for read with proper whitespace/non-whitespace handling
@@ -526,5 +576,5 @@ export function handleRead(
     }
   }
 
-  return result("", "", foundDelimiter ? 0 : 1);
+  return result("", "", timedOut ? 142 : foundDelimiter ? 0 : 1);
 }

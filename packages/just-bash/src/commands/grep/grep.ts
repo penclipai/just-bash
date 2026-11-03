@@ -14,6 +14,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { showHelp, unknownOption } from "../help.js";
 import {
   buildRegex,
@@ -395,7 +396,9 @@ export const grepCommand: RuntimeCommand = {
       if (patternFile === "-") {
         // stdin is a stream: the first `-f -` drains it, any later one reads
         // EOF and contributes nothing.
-        content = stdinUsedForPatterns ? "" : decodeBytesToUtf8(ctx.stdin);
+        content = stdinUsedForPatterns
+          ? ""
+          : decodeBytesToUtf8(await readStdin(ctx));
         stdinUsedForPatterns = true;
       } else {
         try {
@@ -505,8 +508,10 @@ export const grepCommand: RuntimeCommand = {
     // If no files and stdin is provided (including empty string), read from
     // stdin. grep runs regex over text — decode bytes to UTF-8 so multibyte
     // codepoints match `.` / character classes correctly.
-    if (files.length === 0 && ctx.stdin !== undefined) {
-      const input = stdinUsedForPatterns ? "" : decodeBytesToUtf8(ctx.stdin);
+    if (files.length === 0 && (await readStdin(ctx)) !== undefined) {
+      const input = stdinUsedForPatterns
+        ? ""
+        : decodeBytesToUtf8(await readStdin(ctx));
       const result = searchContent(input, regex, {
         invertMatch,
         showLineNumbers,
@@ -687,9 +692,9 @@ export const grepCommand: RuntimeCommand = {
               // codepoints match `.` / character classes correctly. A `-` that
               // arrives after stdin was already drained reads EOF.
               content =
-                fileEntry.stdinAtEof || ctx.stdin === undefined
+                fileEntry.stdinAtEof || (await readStdin(ctx)) === undefined
                   ? ""
-                  : decodeBytesToUtf8(ctx.stdin);
+                  : decodeBytesToUtf8(await readStdin(ctx));
             } else {
               const filePath = ctx.fs.resolvePath(ctx.cwd, file);
 

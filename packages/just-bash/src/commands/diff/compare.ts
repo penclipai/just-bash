@@ -10,6 +10,7 @@ import type { FsStat } from "../../fs/interface.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import {
   computeChanges,
   formatContext,
@@ -202,7 +203,7 @@ export async function comparePaths(
         name: string,
         metadata: FsStat | undefined,
       ): Promise<string> => {
-        if (name === "-") return decodeBytesToUtf8(ctx.stdin);
+        if (name === "-") return decodeBytesToUtf8(await readStdin(ctx));
         if (!metadata) return "";
         if (metadata.size > ctx.limits.maxInputBytes)
           throw new ExecutionLimitError(

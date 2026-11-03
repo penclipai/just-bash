@@ -7,6 +7,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { parseDuration } from "../duration.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
@@ -143,16 +144,19 @@ export const timeoutCommand: RuntimeCommand = {
         }, durationMs);
       });
 
-      const execPromise = ctx
-        .exec(shellJoinArgs([commandArgs[0]]), {
+      const execPromise = (ctx.execWithInheritedStdin ?? ctx.exec)(
+        shellJoinArgs([commandArgs[0]]),
+        {
           cwd: ctx.cwd,
           signal: combinedAbort.signal,
-          stdin: latin1FromBytes(ctx.stdin),
-          // ctx.stdin is already byte-shaped — forward verbatim.
+          stdin: ctx.execWithInheritedStdin
+            ? undefined
+            : latin1FromBytes(await readStdin(ctx)),
+          // Standalone command contexts forward the buffered byte input.
           stdinKind: "bytes",
           args: commandArgs.slice(1),
-        })
-        .then((result) => ({ timedOut: false as const, result }));
+        },
+      ).then((result) => ({ timedOut: false as const, result }));
 
       const outcome = await Promise.race([timeoutPromise, execPromise]);
 

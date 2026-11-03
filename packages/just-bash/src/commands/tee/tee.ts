@@ -5,6 +5,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const teeHelp = {
@@ -39,12 +40,12 @@ export const teeCommand: RuntimeCommand = {
     const files = parsed.result.positional;
     // tee is byte-clean: stdin bytes are written to each file and the same
     // bytes pass through to stdout.
-    const content = latin1FromBytes(ctx.stdin);
+    const content = latin1FromBytes(await readStdin(ctx));
     let stderr = "";
     let exitCode = 0;
 
     // Write to each file in binary mode. The pipe-execution boundary
-    // ensures `ctx.stdin` always reaches us as a latin1-shaped byte
+    // ensures `readStdin(ctx)` always reaches us as a latin1-shaped byte
     // buffer (UTF-8-encoded for non-ASCII), so binary write preserves the
     // bytes verbatim. Default-utf8 write would re-interpret each char as
     // a codepoint and double-encode every high byte.

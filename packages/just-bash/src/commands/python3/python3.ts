@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * python3 - Execute Python code via CPython Emscripten (Python in WebAssembly)
  *
@@ -653,7 +654,7 @@ export const python3Command: RuntimeCommand = {
 
     let pythonCode: string;
     let scriptPath: string | undefined;
-    let stdin = latin1FromBytes(ctx.stdin);
+    let stdin = latin1FromBytes(await readStdin(ctx));
 
     if (parsed.code !== null) {
       pythonCode = parsed.code;
@@ -675,7 +676,7 @@ export const python3Command: RuntimeCommand = {
       // Empty stdin runs an empty program (exit 0) — matching CPython's
       // behavior in non-interactive contexts where no program is provided.
       // Decode bytes — Python source can hold unicode string literals.
-      pythonCode = decodeBytesToUtf8(ctx.stdin);
+      pythonCode = decodeBytesToUtf8(await readStdin(ctx));
       stdin = "";
       scriptPath = "-";
     } else if (parsed.scriptFile !== null) {
@@ -700,8 +701,8 @@ export const python3Command: RuntimeCommand = {
           exitCode: 2,
         };
       }
-    } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
-      pythonCode = decodeBytesToUtf8(ctx.stdin);
+    } else if (decodeBytesToUtf8(await readStdin(ctx)).trim()) {
+      pythonCode = decodeBytesToUtf8(await readStdin(ctx));
       stdin = "";
       scriptPath = "<stdin>";
     } else {

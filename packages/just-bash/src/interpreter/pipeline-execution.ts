@@ -97,8 +97,8 @@ export async function executePipeline(
         automaTrapPipeline(ctx, node, runsInSubshell, () =>
           executeCommand(command, stdin, !isFirst),
         );
-      result = ctx.executionScope.automaOutput
-        ? await ctx.executionScope.automaOutput.pipeline(
+      result = ctx.output
+        ? await ctx.output.pipeline(
             !isLast,
             node.pipeStderr?.[i] ?? false,
             execute,

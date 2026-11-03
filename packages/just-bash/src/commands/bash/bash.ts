@@ -5,6 +5,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const bashHelp = {
@@ -46,7 +47,7 @@ export const bashCommand: RuntimeCommand = {
     // No arguments - read script from stdin if available. Decode bytes — a
     // bash script's UTF-8 string literals must reach the parser as text.
     if (args.length === 0) {
-      const stdinText = decodeBytesToUtf8(ctx.stdin);
+      const stdinText = decodeBytesToUtf8(await readStdin(ctx));
       if (stdinText.trim()) {
         return executeScript(stdinText, "bash", [], ctx);
       }
@@ -101,7 +102,7 @@ export const shCommand: RuntimeCommand = {
     // No arguments - read script from stdin if available. Decode bytes — a
     // shell script's UTF-8 string literals must reach the parser as text.
     if (args.length === 0) {
-      const stdinText = decodeBytesToUtf8(ctx.stdin);
+      const stdinText = decodeBytesToUtf8(await readStdin(ctx));
       if (stdinText.trim()) {
         return executeScript(stdinText, "sh", [], ctx);
       }
@@ -185,7 +186,7 @@ async function executeScript(
         env: positionalEnv,
         newShell: true,
         cwd: ctx.cwd,
-        stdin: latin1FromBytes(ctx.stdin),
+        stdin: latin1FromBytes(await readStdin(ctx)),
         stdinKind: "bytes",
         signal: ctx.signal,
       });

@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * join - join lines of two files on a common field
  *
@@ -303,7 +304,7 @@ export const join: RuntimeCommand = {
     const contents: string[] = [];
     for (const file of files) {
       if (file === "-") {
-        contents.push(decodeBytesToUtf8(ctx.stdin) ?? "");
+        contents.push(decodeBytesToUtf8(await readStdin(ctx)) ?? "");
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         const content = await ctx.fs.readFile(filePath);

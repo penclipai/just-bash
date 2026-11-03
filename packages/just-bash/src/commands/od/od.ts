@@ -9,6 +9,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 type Address = "o" | "x" | "d" | "n";
@@ -186,7 +187,7 @@ async function odExecute(
       let fileLease: ResourceLease | undefined;
       try {
         if (operand === "-") {
-          content = stdinRead ? "" : latin1FromBytes(ctx.stdin);
+          content = stdinRead ? "" : latin1FromBytes(await readStdin(ctx));
           stdinRead = true;
         } else {
           const path = ctx.fs.resolvePath(ctx.cwd, operand);

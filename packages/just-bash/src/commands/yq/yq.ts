@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * yq - RuntimeCommand-line YAML/XML/INI/CSV/TOML processor
  *
@@ -320,7 +321,9 @@ export const yqCommand: RuntimeCommand = {
     if (options.nullInput) {
       input = "";
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      input = decodeBytesToUtf8(ctx.stdin);
+      input = decodeBytesToUtf8(
+        await withDefenseContext("stdin read", () => readStdin(ctx)),
+      );
     } else {
       try {
         const resolvedFilePath = ctx.fs.resolvePath(ctx.cwd, files[0]);

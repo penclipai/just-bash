@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * comm - compare two sorted files line by line
  *
@@ -87,7 +88,7 @@ export const commCommand: RuntimeCommand = {
     // compares equal regardless of which leg it came from.
     const readFile = async (file: string): Promise<string | null> => {
       if (file === "-") {
-        return decodeBytesToUtf8(ctx.stdin);
+        return decodeBytesToUtf8(await readStdin(ctx));
       }
       try {
         const path = ctx.fs.resolvePath(ctx.cwd, file);

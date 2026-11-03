@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * strings - print the sequences of printable characters in files
  *
@@ -315,12 +316,13 @@ export const strings: RuntimeCommand = {
     // input must reach the byte loop as raw bytes, not as decoded text.
     // Pass latin1-shaped bytes directly so multibyte UTF-8 sequences in the
     // source aren't re-encoded by TextEncoder.
-    const stdinBytes = (): string => ctx.stdin as unknown as string;
+    const stdinBytes = async (): Promise<string> =>
+      (await readStdin(ctx)) as unknown as string;
 
     if (files.length === 0) {
       // Read from stdin
       const strings = extractStrings(
-        stdinBytes(),
+        await stdinBytes(),
         options,
         budget,
         true,
@@ -332,7 +334,7 @@ export const strings: RuntimeCommand = {
       for (const file of files) {
         let buffer: Uint8Array | string;
         if (file === "-") {
-          buffer = stdinBytes();
+          buffer = await stdinBytes();
         } else {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
           try {

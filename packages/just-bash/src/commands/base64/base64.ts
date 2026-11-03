@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * base64 - Encode or decode base64
  */
@@ -71,7 +72,7 @@ async function readBinary(
     ctx.limits.maxInputBytes,
     ctx.limits.maxStringLength,
   );
-  const stdinBinary = latin1FromBytes(ctx.stdin);
+  const stdinBinary = latin1FromBytes(await readStdin(ctx));
   // No files - read from stdin
   if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
     assertWithinLimit(

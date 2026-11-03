@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * tac - concatenate and print files in reverse
  *
@@ -44,7 +45,7 @@ async function tacExecute(
   // Read from stdin. tac is byte-clean — splits on \n then reverses, so the
   // stdin path forwards the original latin1 bytes and must be marked "bytes"
   // (the file path above reads decoded text and stays text-shaped).
-  const lines = latin1FromBytes(ctx.stdin).split("\n");
+  const lines = latin1FromBytes(await readStdin(ctx)).split("\n");
   if (lines[lines.length - 1] === "") {
     lines.pop();
   }

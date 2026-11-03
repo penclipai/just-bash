@@ -8,6 +8,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import { createStringBuilder } from "../../utils/string-builder.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -237,13 +238,13 @@ export const trCommand: RuntimeCommand = {
     // Translation operates on codepoints — set1 / set2 args are real Unicode
     // strings, so we must decode bytes to UTF-8 first, otherwise multibyte
     // chars don't match the SET they were spelled with.
-    if (latin1FromBytes(ctx.stdin).length > maxStringLength) {
+    if (latin1FromBytes(await readStdin(ctx)).length > maxStringLength) {
       throw new ExecutionLimitError(
         `tr: input size limit exceeded (${maxStringLength} bytes)`,
         "string_length",
       );
     }
-    const content = decodeBytesToUtf8(ctx.stdin);
+    const content = decodeBytesToUtf8(await readStdin(ctx));
     if (set1Raw.length > maxArrayElements || set2.length > maxArrayElements) {
       throw new ExecutionLimitError(
         `tr: array element limit exceeded (${maxArrayElements})`,

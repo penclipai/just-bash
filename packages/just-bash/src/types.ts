@@ -78,6 +78,19 @@ export interface BashExecResult extends ExecResult {
 
 /** Options for exec calls within commands (internal API) */
 export interface CommandExecOptions {
+  /**
+   * Automa private input capability. A pending read is not EOF.
+   * The source must remove aborted waiters without consuming later input.
+   */
+  stdinSource?: {
+    readChunk(signal?: AbortSignal): Promise<Uint8Array | null>;
+  };
+  /** Automa private output capability, before UTF-8 presentation decoding. */
+  onOutputBytes?: (
+    text: string,
+    stream: "stdout" | "stderr",
+    kind: "text" | "bytes",
+  ) => void | Promise<void>;
   /** Environment variables to merge into the exec state */
   env?: Record<string, string>;
   /**
@@ -228,6 +241,10 @@ export interface RuntimeCommandContext {
    * actually holds UTF-8 — is the bug class this type prevents.
    */
   stdin: ByteString;
+  /** Consume this command's input, awaiting EOF when it is live. */
+  readStdin?(signal?: AbortSignal): Promise<ByteString>;
+  /** Consume one available chunk, waiting for input or explicit EOF. */
+  readStdinChunk?(signal?: AbortSignal): Promise<ByteString | null>;
   /**
    * Whether this command's direct dispatch received pipeline or redirection
    * input, even when empty. Inherited group stdin is intentionally excluded.

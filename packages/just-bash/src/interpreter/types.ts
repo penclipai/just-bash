@@ -12,6 +12,7 @@ import type { ExecutionScope } from "../execution-scope.js";
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
+import type { createOutputSink } from "../output-sink.js";
 import type {
   CommandExecOptions,
   CommandRegistry,
@@ -322,6 +323,8 @@ export interface ProcessState {
 /** Private input description shared by nested command invocations. */
 export interface SharedInputSession {
   remaining: string;
+  /** Append the next live chunk; false means permanent EOF. */
+  readMore?: (signal?: AbortSignal) => Promise<boolean>;
 }
 
 /** File descriptors and stdin for substitutions and compound commands. */
@@ -490,6 +493,8 @@ export interface ShellArray {
 }
 
 export interface InterpreterContext {
+  /** Output routing belongs to an invocation; budgets remain shared. */
+  output?: ReturnType<typeof createOutputSink>;
   environmentInfo?: EnvironmentInfo;
   virtualFileMetadata?: VirtualFileMetadata;
   state: InterpreterState;

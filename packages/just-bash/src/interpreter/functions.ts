@@ -58,7 +58,7 @@ export async function callFunction(
   // Automa: definition redirects are not on the call's SimpleCommand. Hold
   // descendant chunks until the existing function FD transaction has routed them.
   return automaTrapFunction(ctx, () => {
-    const sink = ctx.executionScope.automaOutput;
+    const sink = ctx.output;
     return func.redirections.length && sink
       ? sink.capture(ctx, func, execute)
       : execute();

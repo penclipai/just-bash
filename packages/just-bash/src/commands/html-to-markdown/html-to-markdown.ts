@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * html-to-markdown - Convert HTML to Markdown using TurndownService
  *
@@ -115,13 +116,13 @@ export const htmlToMarkdownCommand: RuntimeCommand = {
       ctx.limits.maxStringLength,
     );
     if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      if (latin1FromBytes(ctx.stdin).length > maxInputBytes) {
+      if (latin1FromBytes(await readStdin(ctx)).length > maxInputBytes) {
         throw new ExecutionLimitError(
           `html-to-markdown: input size limit exceeded (${maxInputBytes} bytes)`,
           "string_length",
         );
       }
-      input = decodeBytesToUtf8(ctx.stdin);
+      input = decodeBytesToUtf8(await readStdin(ctx));
     } else {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);

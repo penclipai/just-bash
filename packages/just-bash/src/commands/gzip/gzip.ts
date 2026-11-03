@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * gzip - compress or expand files
  *
@@ -410,7 +411,7 @@ async function readReservedOperand(
   if (file !== "-" && file !== "") {
     return readReservedFile(ctx, ctx.fs.resolvePath(ctx.cwd, file), site);
   }
-  const stdinBytes = latin1FromBytes(ctx.stdin);
+  const stdinBytes = latin1FromBytes(await readStdin(ctx));
   const lease = ctx.executionScope?.reserveBytes(
     "gzip input",
     stdinBytes.length,
@@ -449,7 +450,7 @@ async function processFile(
 
   // Handle stdin
   if (file === "-" || file === "") {
-    const stdinBytes = latin1FromBytes(ctx.stdin);
+    const stdinBytes = latin1FromBytes(await readStdin(ctx));
     const inputLease = ctx.executionScope?.reserveBytes(
       "gzip input",
       stdinBytes.length,

@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * column - columnate lists
  *
@@ -224,13 +225,13 @@ export const column: RuntimeCommand = {
     // see follow-up.)
     let content: string;
     if (files.length === 0) {
-      content = decodeBytesToUtf8(ctx.stdin) ?? "";
+      content = decodeBytesToUtf8(await readStdin(ctx)) ?? "";
     } else {
       const parts: string[] = [];
       let inputBytes = 0;
       for (const file of files) {
         if (file === "-") {
-          const part = decodeBytesToUtf8(ctx.stdin) ?? "";
+          const part = decodeBytesToUtf8(await readStdin(ctx)) ?? "";
           inputBytes += utf8ByteLength(part);
           if (inputBytes > maxInputBytes) {
             throw new ExecutionLimitError(

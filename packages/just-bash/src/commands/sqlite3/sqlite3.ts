@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * sqlite3 - SQLite database CLI
  *
@@ -761,7 +762,7 @@ export const sqlite3Command: RuntimeCommand = {
 
     // Get SQL from argument or stdin. SQL is text — decode bytes to UTF-8 so
     // string literals containing multibyte characters survive intact.
-    let sql = sqlArg || decodeBytesToUtf8(ctx.stdin).trim();
+    let sql = sqlArg || decodeBytesToUtf8(await readStdin(ctx)).trim();
     if (options.cmd) {
       sql = options.cmd + (sql ? `; ${sql}` : "");
     }

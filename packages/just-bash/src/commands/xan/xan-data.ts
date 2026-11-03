@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * Data utility commands: transpose, shuffle, fixlengths, split, partition
  * Commands that exist in real xan
@@ -176,7 +177,7 @@ export async function cmdFixlengths(
   let input: string;
 
   if (!file || file === "-") {
-    input = decodeBytesToUtf8(ctx.stdin);
+    input = decodeBytesToUtf8(await readStdin(ctx));
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);
@@ -596,7 +597,7 @@ async function cmdFromJson(
   let input: string;
 
   if (!file || file === "-") {
-    input = decodeBytesToUtf8(ctx.stdin);
+    input = decodeBytesToUtf8(await readStdin(ctx));
   } else {
     try {
       const path = ctx.fs.resolvePath(ctx.cwd, file);

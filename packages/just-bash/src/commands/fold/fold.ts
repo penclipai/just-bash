@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * fold - wrap each input line to fit in specified width
  *
@@ -253,7 +254,7 @@ export const fold: RuntimeCommand = {
     if (files.length === 0) {
       // Read from stdin. fold counts width in codepoints (and tab-stops),
       // so decode bytes — wrapping mid-multibyte would corrupt the data.
-      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+      const input = decodeBytesToUtf8(await readStdin(ctx)) ?? "";
       output = processContent(input, options);
     } else {
       // Process each file

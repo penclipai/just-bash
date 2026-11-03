@@ -1,3 +1,4 @@
+import { readStdin } from "../../utils/read-stdin.js";
 /**
  * nl - number lines of files
  *
@@ -335,7 +336,7 @@ export const nl: RuntimeCommand = {
     if (files.length === 0) {
       // Read from stdin. nl reads files as utf8 by default; normalize stdin
       // to text so the line-numbered output is consistent with file inputs.
-      const input = decodeBytesToUtf8(ctx.stdin) ?? "";
+      const input = decodeBytesToUtf8(await readStdin(ctx)) ?? "";
       const result = processContent(input, options, lineNumber, maxOutputBytes);
       output = result.output;
     } else {

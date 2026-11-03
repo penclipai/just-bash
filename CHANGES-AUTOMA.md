@@ -401,3 +401,17 @@ finishes. Each write consumes the shared output budget and belongs to the
 command's descriptors. The command returns any remaining output and its exit
 code. Pipes, redirects and substitutions retain their own output until the
 existing shell routing resolves them. The capability expires with the command.
+
+Nested exec accepts a private cancellable stdin source and a per-execution
+`onOutputBytes` callback that preserves text/byte shape and stdout/stderr identity.
+Child output sinks share the original execution budget without changing a parent
+or sibling sink. Existing terminal UTF-8 presentation remains unchanged.
+
+Commands consume open input through `readStdin(signal?)` or
+`readStdinChunk(signal?)`; static contexts retain their buffered stdin contract.
+Untransformed cat emits each chunk before EOF, read waits for its delimiter or
+timeout, and bounded mapfile stops at its line limit. Descriptor aliases and
+nested shell wrappers retain the same input cursor. Cancellation removes pending
+source waiters without closing the outer input, and shared input/work/deadline
+limits remain enforced. Ordinary batch commands and shell pipelines retain their
+existing buffered processing. No host process or native terminal is introduced.
