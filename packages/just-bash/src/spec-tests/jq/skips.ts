@@ -319,7 +319,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // Format functions
   { pattern: /\bformat\(/, reason: "format() not implemented" },
   { pattern: /@base32/, reason: "@base32 not implemented" },
-  { pattern: /@html /, reason: "@html format not implemented" },
 
   // Math functions (obscure)
   { pattern: /\bj0\b/, reason: "j0 not implemented" },
