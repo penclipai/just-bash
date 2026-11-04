@@ -1,3 +1,4 @@
+import { missingCommandHint } from "./missing-command-hints.js";
 import { automaTrapBuiltin } from "./traps.js";
 /**
  * Builtin Command Dispatch
@@ -847,6 +848,10 @@ export async function executeExternalCommand(
     useDefaultPath ? defaultPath : undefined,
   );
   if (!resolved) {
+    const hint = missingCommandHint(commandName);
+    if (hint) {
+      return failure(`bash: ${commandName}: command not found\n${hint}`, 127);
+    }
     // Check if this is a browser-excluded command for a more helpful error
     if (isBrowserExcludedCommand(commandName)) {
       return failure(
