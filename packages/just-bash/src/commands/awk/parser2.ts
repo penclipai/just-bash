@@ -1244,6 +1244,11 @@ export class AwkParser {
         return { type: "array_access", array: name, key };
       }
 
+      // POSIX: bare `length` (no parentheses) means length($0)
+      if (name === "length") {
+        return { type: "call", name, args: [] };
+      }
+
       // Simple variable
       return { type: "variable", name };
     }
