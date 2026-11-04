@@ -111,6 +111,8 @@ export function evaluateExpressionWithPrune(
         return { matches: ctx.isFile, pruned: false, printed: false };
       if (expr.fileType === "d")
         return { matches: ctx.isDirectory, pruned: false, printed: false };
+      if (expr.fileType === "l")
+        return { matches: ctx.isSymbolicLink, pruned: false, printed: false };
       return { matches: false, pruned: false, printed: false };
     case "empty":
       return { matches: ctx.isEmpty, pruned: false, printed: false };
@@ -346,6 +348,7 @@ export interface EarlyEvalContext {
   relativePath: string;
   isFile: boolean;
   isDirectory: boolean;
+  isSymbolicLink: boolean;
 }
 
 /**
@@ -396,6 +399,7 @@ export function evaluateSimpleExpression(
   relativePath: string,
   isFile: boolean,
   isDirectory: boolean,
+  isSymbolicLink: boolean,
 ): EvalResult {
   switch (expr.type) {
     case "name": {
@@ -490,6 +494,8 @@ export function evaluateSimpleExpression(
         return { matches: isFile, pruned: false, printed: false };
       if (expr.fileType === "d")
         return { matches: isDirectory, pruned: false, printed: false };
+      if (expr.fileType === "l")
+        return { matches: isSymbolicLink, pruned: false, printed: false };
       return { matches: false, pruned: false, printed: false };
     case "prune":
       return { matches: true, pruned: true, printed: false };
@@ -508,6 +514,7 @@ export function evaluateSimpleExpression(
         relativePath,
         isFile,
         isDirectory,
+        isSymbolicLink,
       );
       return {
         matches: !inner.matches,
@@ -524,6 +531,7 @@ export function evaluateSimpleExpression(
         relativePath,
         isFile,
         isDirectory,
+        isSymbolicLink,
       );
       if (left.quit) return left;
       if (!left.matches) {
@@ -540,6 +548,7 @@ export function evaluateSimpleExpression(
         relativePath,
         isFile,
         isDirectory,
+        isSymbolicLink,
       );
       return {
         matches: right.matches,
@@ -556,6 +565,7 @@ export function evaluateSimpleExpression(
         relativePath,
         isFile,
         isDirectory,
+        isSymbolicLink,
       );
       if (left.quit || left.matches) {
         return left;
@@ -566,6 +576,7 @@ export function evaluateSimpleExpression(
         relativePath,
         isFile,
         isDirectory,
+        isSymbolicLink,
       );
       return {
         matches: right.matches,
@@ -671,6 +682,7 @@ export function evaluateForEarlyPrune(
     relativePath: ctx.relativePath,
     isFile: ctx.isFile,
     isDirectory: ctx.isDirectory,
+    isSymbolicLink: ctx.isSymbolicLink,
     isEmpty: false, // Not available early
     mtime: 0,
     size: 0,
@@ -703,6 +715,7 @@ function evaluatePruneBranchEarly(
           relativePath: ctx.relativePath,
           isFile: ctx.isFile,
           isDirectory: ctx.isDirectory,
+          isSymbolicLink: ctx.isSymbolicLink,
           isEmpty: false,
           mtime: 0,
           size: 0,
@@ -730,6 +743,7 @@ function evaluatePruneBranchEarly(
           relativePath: ctx.relativePath,
           isFile: ctx.isFile,
           isDirectory: ctx.isDirectory,
+          isSymbolicLink: ctx.isSymbolicLink,
           isEmpty: false,
           mtime: 0,
           size: 0,
@@ -747,6 +761,7 @@ function evaluatePruneBranchEarly(
           relativePath: ctx.relativePath,
           isFile: ctx.isFile,
           isDirectory: ctx.isDirectory,
+          isSymbolicLink: ctx.isSymbolicLink,
           isEmpty: false,
           mtime: 0,
           size: 0,

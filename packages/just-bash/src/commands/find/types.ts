@@ -5,7 +5,7 @@ export type Expression =
   | { type: "name"; pattern: string; ignoreCase?: boolean }
   | { type: "path"; pattern: string; ignoreCase?: boolean }
   | { type: "regex"; pattern: string; ignoreCase?: boolean }
-  | { type: "type"; fileType: "f" | "d" }
+  | { type: "type"; fileType: "f" | "d" | "l" }
   | { type: "empty" }
   | { type: "mtime"; days: number; comparison: "exact" | "more" | "less" }
   | { type: "mmin"; minutes: number; comparison: "exact" | "more" | "less" }
@@ -45,6 +45,7 @@ export interface EvalContext {
   relativePath: string;
   isFile: boolean;
   isDirectory: boolean;
+  isSymbolicLink: boolean;
   isEmpty: boolean;
   mtime: number; // modification time as timestamp
   size: number; // file size in bytes

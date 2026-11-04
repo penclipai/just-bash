@@ -1,0 +1,65 @@
+{
+  "062917ffc93b320b": {
+    "command": "printf '' >file; exec 4>&1; exec 1<>file; exec 3>&1; printf a >&3 | cat; printf b; exec 1>&4; cat file",
+    "files": {},
+    "stdout": "ab",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0e4bba115a64cf29": {
+    "command": "cat <(printf 'a\\n' | tr -d '\\n'; printf '\\n')",
+    "files": {},
+    "stdout": "a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "431549d3388015b8": {
+    "command": "{ printf o; printf e >&2; } >side |& cat; cat side",
+    "files": {},
+    "stdout": "oe",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6681a2fef78da67b": {
+    "command": "printf '' >file; printf z >other; exec 4>&1; exec 1<>file; exec 3>&1; { printf a >&3; exec 3<>other; } | cat; printf b; exec 1>&4; cat file; cat other",
+    "files": {},
+    "stdout": "abz",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7080d5d58247f53a": {
+    "command": "exec 3>&1; exec > out; printf 'a\\n' | tr -d '\\n'; printf '\\n'; exec 1>&3; cat out",
+    "files": {},
+    "stdout": "a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "83bf1cb0e3a56824": {
+    "command": ": >file; : >other; exec 3<>file; f() { exec 3>&-; exec 3<>other; printf a; }; f >&3; printf 'original:['; cat file; printf '] reopened:['; cat other; printf ']\\n'",
+    "files": {},
+    "stdout": "original:[a] reopened:[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9cf8be00a111c4f5": {
+    "command": "printf x >missing/out |& wc -c",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "/bin/bash: line 1: missing/out: No such file or directory\n",
+    "exitCode": 0
+  },
+  "f298febfe2ea9347": {
+    "command": "f() { printf o; printf e >&2; }; f >side 2>error |& cat; printf '<'; cat error; printf '>'; cat side",
+    "files": {},
+    "stdout": "<>oe",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fbd28b04280f1538": {
+    "command": "cat <(exec 2>&1; { printf o; printf e >&2; } |& tr oe OE)",
+    "files": {},
+    "stdout": "OE",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

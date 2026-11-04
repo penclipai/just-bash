@@ -160,6 +160,14 @@ describe("Automa unwind output accounting", () => {
     }
   });
 
+  it("releases captured pipeline intermediates", async () => {
+    const result = await new Bash({
+      executionLimits: { maxOutputSize: 8 },
+    }).exec("cat <(printf 1234 | cat)");
+    expect(result).toMatchObject({ stdout: "1234", stderr: "", exitCode: 0 });
+    expect(result.executionFailure).toBeUndefined();
+  });
+
   it("keeps actual output exhaustion sticky through return cleanup", async () => {
     const bash = new Bash({ executionLimits: { maxOutputSize: 4 } });
     const result = await bash.exec(

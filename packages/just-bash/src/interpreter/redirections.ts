@@ -54,6 +54,7 @@ import {
   effectiveRedirectFd,
   isNumericFdRedirection,
 } from "./numeric-fd-redirects.js";
+import { PIPE_STDERR_REDIRECTION } from "./pipeline-redirections.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
@@ -1022,6 +1023,17 @@ async function prepareRedirectionsWithState(
             ctx.state.closedStandardFds.add(parsed.sourceFd);
           }
         }
+      }
+      if (redir === PIPE_STDERR_REDIRECTION) {
+        // Descendants aggregate stderr before this resolved |& sink is applied.
+        rememberFd(ctx, transaction.standardSnapshot, 2);
+        if (!transaction.standardClosedSnapshot.has(2))
+          transaction.standardClosedSnapshot.set(
+            2,
+            ctx.state.closedStandardFds?.has(2) === true,
+          );
+        closeFd(ctx, 2);
+        ctx.state.closedStandardFds?.delete(2);
       }
       continue;
     }

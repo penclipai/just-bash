@@ -14,6 +14,10 @@ import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
 import { clearArray, cloneArrays, setArrayElement } from "./helpers/array.js";
 import { OK } from "./helpers/result.js";
+import {
+  bindPipelineOutput,
+  withPipedStderr,
+} from "./pipeline-redirections.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
@@ -60,9 +64,15 @@ export async function executePipeline(
   let sharedStdinSourceFd = ctx.state.groupStdinSourceFd;
 
   for (let i = 0; i < node.commands.length; i++) {
-    const command = node.commands[i];
     const isLast = i === node.commands.length - 1;
     const isFirst = i === 0;
+    const pipeStderr = node.pipeStderr?.[i] ?? false;
+    const command = pipeStderr
+      ? withPipedStderr(node.commands[i])
+      : node.commands[i];
+    // Executable commands route |& through their final implicit redirection.
+    // Definition-time diagnostics have no executed redirection transaction.
+    const pipeStderrToNext = pipeStderr && command.type === "FunctionDef";
 
     // In a multi-command pipeline, each command runs in a subshell context
     // where $_ starts empty (subshells don't inherit $_ from parent in same way)
@@ -88,21 +98,19 @@ export async function executePipeline(
     // This prevents variable assignments (e.g., ${cmd=echo}) from leaking to parent
     const savedEnv = runsInSubshell ? new Map(ctx.state.env) : null;
     const savedArrays = runsInSubshell ? cloneArrays(ctx.state.arrays) : null;
+    let restoreOutput: (() => void) | undefined;
 
     let result: ExecResult;
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
     try {
+      if (!isLast) restoreOutput = bindPipelineOutput(ctx, pipeStderr);
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
       const execute = () =>
         automaTrapPipeline(ctx, node, runsInSubshell, () =>
           executeCommand(command, stdin, !isFirst),
         );
       result = ctx.output
-        ? await ctx.output.pipeline(
-            !isLast,
-            node.pipeStderr?.[i] ?? false,
-            execute,
-          )
+        ? await ctx.output.pipeline(!isLast, pipeStderrToNext, execute)
         : await execute();
     } catch (error) {
       // BadSubstitutionError should fail the command but not abort the script
@@ -142,6 +150,7 @@ export async function executePipeline(
         throw error;
       }
     } finally {
+      restoreOutput?.();
       if (isMultiCommandPipeline) {
         // The first stage held the shell's stdin, so whatever it consumed
         // (a `read` builtin advances the position, `true` does not) is now
@@ -177,7 +186,6 @@ export async function executePipeline(
       // Keep the prospective stage check above, then return its accounting
       // credit so a pass-through pipeline is bounded by peak retained output
       // instead of charging the same bytes once per stage.
-      const pipeStderrToNext = node.pipeStderr?.[i] ?? false;
       const releasedStdout = result.internalOutputAccounting?.stdout ?? 0;
       const releasedStderr = pipeStderrToNext
         ? (result.internalOutputAccounting?.stderr ?? 0)
@@ -212,8 +220,7 @@ export async function executePipeline(
       // (or legacy `stdoutEncoding === "binary"`) and converts text →
       // UTF-8 bytes / passes byte buffers through. No content-based
       // heuristics — the producer's metadata is the source of truth.
-      // Check if this pipe is |& (pipe stderr to next command's stdin too)
-      const pipeStderrToNext = node.pipeStderr?.[i] ?? false;
+      // Function-definition diagnostics still use the direct |& route.
       if (pipeStderrToNext) {
         // |& pipes stderr + stdout. stderr is text (no producer marks it
         // binary today); UTF-8 encode it before concatenating with the

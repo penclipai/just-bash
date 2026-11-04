@@ -13,6 +13,7 @@ Automa records the exact fork commit, build inputs and artifact hashes in
 | shell-flags: paste, grep, ls, sed, curl | `src/commands/{paste,grep,ls,sed,curl}/` | Command tests, binary backups/uploads and visible file errors |
 | xargs-flags and parallel output sink | `src/commands/xargs/` | Attached options, logical lines, replacement, isolated ordered batches |
 | rg-sort and globstar | `src/commands/rg/`, optional times in `src/fs/interface.ts` | Real metadata sorting, include/exclude and directory matching |
+| find symlink type and starting points | `src/commands/find/` | `-type l`, dangling links and physical traversal within existing FS boundaries |
 | sort-c-locale, sort keys, uniq count | `src/commands/{sort,uniq}/` | C/POSIX byte order, key modifiers, unique equality and formatting |
 | od-read-bytes, checksum-operands | `src/commands/{od,checksum}/` | Byte bounds, `--`, missing/mixed operands and diagnostic streams |
 | jq inline path updates, interpolation, equality and array difference | `src/commands/query-engine/` | Exact paths, literal escapes, unordered object equality and bounded comparison |
@@ -20,7 +21,7 @@ Automa records the exact fork commit, build inputs and artifact hashes in
 | jq unicode-escapes, error-status, user-functions, walk | query parser/evaluator, `src/commands/jq/` | Unicode, CLI exit classification, lexical functions and bounded traversal |
 | jq input and input-metadata | jq `input*.ts`, query-engine `input-state.ts` | Shared cursor, source locations, EOF, file errors and unsupported eager composition |
 | awk FS, records, capture offsets, program files | `src/commands/awk/`, `src/regex/user-regex.ts` | Record cursor, RS/RT/FS, exact RE2 capture offsets, program files and limits |
-| output-order and output-sink | `src/execution-output.ts`, `src/output-sink.ts`, interpreter FD/control flow | Ordered text/byte segments, backpressure, resource charging and cancellation |
+| output-order and output-sink | `src/execution-output.ts`, `src/output-sink.ts`, interpreter FD/control flow | Ordered text/byte segments, captured pipeline FDs, implicit `|&` order, shared readwrite identities, backpressure, resource charging and cancellation |
 | execution-failure and brace range | `src/Bash.ts`, `src/execution-scope.ts`, interpreter errors/expansion | Sticky invocation failures, partial output and nonrecoverable resource exhaustion |
 | process-substitution-bytes and command-substitution-text | Interpreter substitution/expansion helpers | Private FD bytes, adjacent UTF-8 reconstruction, trailing newline removal and cleanup |
 | utf8-data-bom and printf/echo bytes | `src/encoding.ts`, `src/Bash.ts`, `src/commands/{printf,echo}/` | BOM data, invalid UTF-8, exact byte escape output and budgets |
@@ -59,6 +60,10 @@ available internally for complete-program differential tests.
 Automa still owns its COW filesystem, revocable network/crypto capabilities,
 Worker lifecycle and browser integration tests. Nothing here grants native
 process execution or enables Python/JavaScript in Automa's Shell.
+
+Live-stream descriptor aliases can still follow a nested standard-stream
+capture target. This existing collector-identity limitation is separate from
+the RW file-description identity repair.
 
 Pi's selected find/grep tools pass the private `--automa-respect-ignore` option
 when filtering recursive results by glob. It prevents a positive glob from

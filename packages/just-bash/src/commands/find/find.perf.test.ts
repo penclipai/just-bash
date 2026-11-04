@@ -400,6 +400,7 @@ describe("find performance tracing", () => {
           file.relativePath,
           file.isFile,
           file.isDirectory,
+          false,
         );
         if (result.matches) fastPathMatches++;
       }
@@ -419,6 +420,7 @@ describe("find performance tracing", () => {
           relativePath: file.relativePath,
           isFile: file.isFile,
           isDirectory: file.isDirectory,
+          isSymbolicLink: false,
           isEmpty: false,
           mtime: Date.now(),
           size: 1024,

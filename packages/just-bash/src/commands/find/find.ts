@@ -113,7 +113,7 @@ const findHelp = {
     "-ipath PATTERN   like -path but case insensitive",
     "-regex PATTERN   file path matches regular expression PATTERN",
     "-iregex PATTERN  like -regex but case insensitive",
-    "-type TYPE       file is of type: f (regular file), d (directory)",
+    "-type TYPE       file is of type: f (regular file), d (directory), l (symlink)",
     "-empty           file is empty or directory is empty",
     "-mtime N         file's data was modified N*24 hours ago",
     "-mmin N          file's data was modified N minutes ago",
@@ -366,7 +366,7 @@ export const findCommand: RuntimeCommand = {
 
       // Check if path exists
       try {
-        await ctx.fs.stat(basePath);
+        await ctx.fs.lstat(basePath);
       } catch {
         appendStderr(`find: ${searchPath}: No such file or directory\n`);
         exitCode = 1;
@@ -377,7 +377,10 @@ export const findCommand: RuntimeCommand = {
       interface WorkItem {
         path: string;
         depth: number;
-        typeInfo?: { isFile: boolean; isDirectory: boolean };
+        typeInfo?: Pick<
+          DirentEntry,
+          "isFile" | "isDirectory" | "isSymbolicLink"
+        >;
         // For ordered results: index where this item's results go
         resultIndex: number;
       }
@@ -388,6 +391,7 @@ export const findCommand: RuntimeCommand = {
         name: string;
         isFile: boolean;
         isDirectory: boolean;
+        isSymbolicLink: boolean;
         isEmpty: boolean;
         stat?: Awaited<ReturnType<typeof ctx.fs.stat>>;
         depth: number;
@@ -417,11 +421,13 @@ export const findCommand: RuntimeCommand = {
         // Get type info
         let isFile: boolean;
         let isDirectory: boolean;
+        let isSymbolicLink: boolean;
         let stat: Awaited<ReturnType<typeof ctx.fs.stat>> | undefined;
 
         if (typeInfo && !needsStatMetadata) {
           isFile = typeInfo.isFile;
           isDirectory = typeInfo.isDirectory;
+          isSymbolicLink = typeInfo.isSymbolicLink;
         } else {
           try {
             const statStart = Date.now();
@@ -436,6 +442,7 @@ export const findCommand: RuntimeCommand = {
           if (!stat) return null;
           isFile = stat.isFile;
           isDirectory = stat.isDirectory;
+          isSymbolicLink = stat.isSymbolicLink;
         }
 
         // Compute name and relative path
@@ -467,6 +474,7 @@ export const findCommand: RuntimeCommand = {
             relativePath,
             isFile,
             isDirectory,
+            isSymbolicLink,
           });
           earlyPruned = earlyResult.shouldPrune;
           if (earlyPruned) {
@@ -487,6 +495,7 @@ export const findCommand: RuntimeCommand = {
             relativePath,
             isFile,
             isDirectory,
+            isSymbolicLink,
             isEmpty: false,
             mtime: stat?.mtime?.getTime() ?? now,
             size: stat?.size ?? 0,
@@ -546,6 +555,7 @@ export const findCommand: RuntimeCommand = {
                   typeInfo: {
                     isFile: entry.isFile,
                     isDirectory: entry.isDirectory,
+                    isSymbolicLink: entry.isSymbolicLink,
                   },
                   resultIndex: idx,
                 });
@@ -588,6 +598,7 @@ export const findCommand: RuntimeCommand = {
             relativePath,
             isFile,
             isDirectory,
+            isSymbolicLink,
             isEmpty,
             mtime: stat?.mtime?.getTime() ?? Date.now(),
             size: stat?.size ?? 0,
@@ -606,6 +617,7 @@ export const findCommand: RuntimeCommand = {
           name,
           isFile,
           isDirectory,
+          isSymbolicLink,
           isEmpty,
           stat,
           depth,
@@ -625,7 +637,7 @@ export const findCommand: RuntimeCommand = {
           mtime: node.stat?.mtime?.getTime() ?? Date.now(),
           mode: node.stat?.mode ?? 0o644,
           isDirectory: node.isDirectory,
-          fileType: node.stat?.isSymbolicLink
+          fileType: node.isSymbolicLink
             ? "l"
             : node.isDirectory
               ? "d"
@@ -675,6 +687,7 @@ export const findCommand: RuntimeCommand = {
               node.relativePath,
               node.isFile,
               node.isDirectory,
+              node.isSymbolicLink,
             );
           } else {
             const evalCtx: EvalContext = {
@@ -682,6 +695,7 @@ export const findCommand: RuntimeCommand = {
               relativePath: node.relativePath,
               isFile: node.isFile,
               isDirectory: node.isDirectory,
+              isSymbolicLink: node.isSymbolicLink,
               isEmpty: node.isEmpty,
               mtime: node.stat?.mtime?.getTime() ?? Date.now(),
               size: node.stat?.size ?? 0,

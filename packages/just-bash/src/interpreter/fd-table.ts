@@ -80,7 +80,7 @@ interface FdSnapshotEntry {
   raw: string | undefined;
   isInput: boolean;
   isDevice: boolean;
-  aliases: number[];
+  description?: Set<number>;
 }
 
 /** Descriptor state captured by {@link rememberFd}, replayed by
@@ -183,6 +183,37 @@ function markContent(ctx: InterpreterContext, fd: number, isInput: boolean) {
 }
 
 // ---- Shared open file descriptions -----------------------------------------
+const detachedDescriptionRaw = new WeakMap<Set<number>, string>();
+type ReadWriteFdEntry = Extract<FdEntry, { kind: "readwrite" }>;
+const entryDescriptions = new WeakMap<
+  Map<number, string>,
+  WeakMap<ReadWriteFdEntry, Set<number>>
+>();
+
+function descriptionsFor(ctx: InterpreterContext) {
+  const owner = table(ctx);
+  let descriptions = entryDescriptions.get(owner);
+  if (!descriptions) {
+    descriptions = new WeakMap<ReadWriteFdEntry, Set<number>>();
+    entryDescriptions.set(owner, descriptions);
+  }
+  return descriptions;
+}
+
+function readWriteDescription(
+  ctx: InterpreterContext,
+  entry: ReadWriteFdEntry,
+): Set<number> {
+  const descriptions = descriptionsFor(ctx);
+  let description = descriptions.get(entry);
+  if (!description) {
+    description = new Set();
+    descriptions.set(entry, description);
+    detachedDescriptionRaw.set(description, encodeFdEntry(entry));
+  }
+  return description;
+}
+
 // `N<&M` gives N and M the same open file description, so they share ONE read
 // offset: after `exec 4<&3`, reading fd 3 moves fd 4 forward too. The table
 // stores a descriptor's unread remainder as its value, so "sharing an offset"
@@ -198,6 +229,16 @@ function aliasGroup(
   return ctx.state.fdAliases?.get(fd);
 }
 
+function ensureFdDescription(ctx: InterpreterContext, fd: number): Set<number> {
+  let description = aliasGroup(ctx, fd);
+  if (!description) {
+    description = new Set([fd]);
+    ctx.state.fdAliases ??= new Map();
+    ctx.state.fdAliases.set(fd, description);
+  }
+  return description;
+}
+
 export function getFdAliasMembers(
   ctx: InterpreterContext,
   fd: number,
@@ -205,15 +246,15 @@ export function getFdAliasMembers(
   return [...(aliasGroup(ctx, fd) ?? [fd])];
 }
 
-/** Drop `fd` from its alias group; the last remaining member stops aliasing. */
+/** Drop `fd` while preserving the description held by scoped snapshots. */
 function leaveAliasGroup(ctx: InterpreterContext, fd: number): void {
   const group = aliasGroup(ctx, fd);
   if (!group) return;
+  const raw = getRawFd(ctx, fd);
   group.delete(fd);
   ctx.state.fdAliases?.delete(fd);
-  if (group.size < 2) {
-    for (const member of group) ctx.state.fdAliases?.delete(member);
-  }
+  if (group.size === 0 && raw !== undefined)
+    detachedDescriptionRaw.set(group, raw);
 }
 
 /** Put `fd` into `sourceFd`'s alias group, creating the group if needed. */
@@ -249,15 +290,17 @@ export function getFdEntry(
   if (raw === undefined) return undefined;
   // A descriptor known to hold content is never re-parsed: a file whose
   // first line reads `__file__:/tmp/x` is data, not a marker.
-  const entry: FdEntry = ctx.state.inputFds?.has(fd)
+  let entry: FdEntry = ctx.state.inputFds?.has(fd)
     ? { kind: "input", content: raw }
     : decodeFdEntry(raw);
   if (
     ctx.state.deviceFds?.has(fd) &&
     (entry.kind === "input" || entry.kind === "readwrite")
   ) {
-    return { ...entry, device: true };
+    entry = { ...entry, device: true };
   }
+  if (entry.kind === "readwrite")
+    descriptionsFor(ctx).set(entry, ensureFdDescription(ctx, fd));
   return entry;
 }
 
@@ -298,8 +341,8 @@ export function setRawFd(
   isInput = false,
   isDevice = false,
 ): void {
-  ctx.state.fdInputSessions?.delete(fd);
   leaveAliasGroup(ctx, fd);
+  ctx.state.fdInputSessions?.delete(fd);
   writeRawFd(ctx, fd, raw, isInput, isDevice);
 }
 
@@ -308,6 +351,8 @@ export function setFdEntry(
   fd: number,
   entry: FdEntry,
 ): void {
+  const description =
+    entry.kind === "readwrite" ? readWriteDescription(ctx, entry) : undefined;
   setRawFd(
     ctx,
     fd,
@@ -316,14 +361,20 @@ export function setFdEntry(
     (entry.kind === "input" || entry.kind === "readwrite") &&
       entry.device === true,
   );
+  if (description) {
+    description.add(fd);
+    ctx.state.fdAliases ??= new Map();
+    ctx.state.fdAliases.set(fd, description);
+    detachedDescriptionRaw.delete(description);
+  }
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
+  leaveAliasGroup(ctx, fd);
   ctx.state.fileDescriptors?.delete(fd);
   ctx.state.fdInputSessions?.delete(fd);
   ctx.state.inputFds?.delete(fd);
   ctx.state.deviceFds?.delete(fd);
-  leaveAliasGroup(ctx, fd);
 }
 
 /**
@@ -367,17 +418,18 @@ export function moveFd(
   if (fd === sourceFd) return true;
   const isInput = ctx.state.inputFds?.has(sourceFd) === true;
   const isDevice = ctx.state.deviceFds?.has(sourceFd) === true;
-  const aliases = [...(aliasGroup(ctx, sourceFd) ?? [])].filter(
-    (member) => member !== sourceFd,
-  );
+  const description = aliasGroup(ctx, sourceFd);
   closeFd(ctx, sourceFd);
   setRawFd(ctx, fd, raw, isInput, isDevice);
   if (inputSession) {
     ctx.state.fdInputSessions ??= new Map();
     ctx.state.fdInputSessions.set(fd, inputSession);
   }
-  const survivor = aliases.find((member) => isFdOpen(ctx, member));
-  if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
+  if (description) {
+    description.add(fd);
+    ctx.state.fdAliases?.set(fd, description);
+    detachedDescriptionRaw.delete(description);
+  }
   return true;
 }
 
@@ -445,7 +497,7 @@ export function advanceFd(
 export async function writeFdEntry(
   ctx: InterpreterContext,
   entry: FdEntry,
-  descriptors: number[],
+  _descriptors: number[],
   content: string,
   encoding: "binary" | "utf8",
 ): Promise<FdEntry | false> {
@@ -453,13 +505,16 @@ export async function writeFdEntry(
     await ctx.fs.appendFile(entry.path, content, encoding);
     return entry;
   }
-  const liveEntry = descriptors
-    .map((fd) => getFdEntry(ctx, fd))
-    .find(
-      (candidate): candidate is Extract<FdEntry, { kind: "readwrite" }> =>
-        candidate?.kind === "readwrite",
-    );
-  const writeEntry = liveEntry ?? entry;
+  if (entry.kind !== "readwrite") return false;
+  const description = readWriteDescription(ctx, entry);
+  const survivor = [...description].find(
+    (fd) => aliasGroup(ctx, fd) === description && isFdOpen(ctx, fd),
+  );
+  const latestRaw =
+    survivor !== undefined
+      ? getRawFd(ctx, survivor)
+      : detachedDescriptionRaw.get(description);
+  const writeEntry = latestRaw === undefined ? entry : decodeFdEntry(latestRaw);
   if (writeEntry.kind !== "readwrite") return false;
 
   const updatedContent =
@@ -467,16 +522,22 @@ export async function writeFdEntry(
     content +
     writeEntry.content.slice(writeEntry.position + content.length);
   const updated: FdEntry = {
-    ...writeEntry,
+    ...entry,
     position: writeEntry.position + content.length,
     content: updatedContent,
   };
   await ctx.fs.writeFile(writeEntry.path, updatedContent, encoding);
   const raw = encodeFdEntry(updated);
-  for (const fd of descriptors) {
-    if (isFdOpen(ctx, fd))
+  descriptionsFor(ctx).set(updated, description);
+  let live = false;
+  for (const fd of description) {
+    if (aliasGroup(ctx, fd) === description && isFdOpen(ctx, fd)) {
       writeRawFd(ctx, fd, raw, false, updated.device === true);
+      live = true;
+    }
   }
+  if (live) detachedDescriptionRaw.delete(description);
+  else detachedDescriptionRaw.set(description, raw);
   return updated;
 }
 
@@ -491,13 +552,15 @@ export function rememberFd(
   fd: number,
 ): void {
   if (snapshot.has(fd)) return;
-  const group = aliasGroup(ctx, fd);
+  const raw = getRawFd(ctx, fd);
+  const description =
+    raw === undefined ? undefined : ensureFdDescription(ctx, fd);
   snapshot.set(fd, {
-    raw: getRawFd(ctx, fd),
+    raw,
     inputSession: ctx.state.fdInputSessions?.get(fd),
     isInput: ctx.state.inputFds?.has(fd) === true,
     isDevice: ctx.state.deviceFds?.has(fd) === true,
-    aliases: group ? [...group].filter((member) => member !== fd) : [],
+    description,
   });
 }
 
@@ -529,22 +592,38 @@ export function restoreFds(
   if (!fds) return;
   for (const [
     fd,
-    { raw, isInput, isDevice, aliases, inputSession },
+    { raw, isInput, isDevice, description, inputSession },
   ] of snapshot) {
     if (raw === undefined) {
       closeFd(ctx, fd);
       continue;
     }
-    // Re-opening the saved value detaches fd from whatever it aliases now.
-    setRawFd(ctx, fd, inputSession?.remaining ?? raw, isInput, isDevice);
+    const survivor =
+      description &&
+      [...description].find(
+        (member) => aliasGroup(ctx, member) === description && fds.has(member),
+      );
+    const latestRaw =
+      survivor !== undefined
+        ? getRawFd(ctx, survivor)
+        : description && detachedDescriptionRaw.get(description);
+    setRawFd(
+      ctx,
+      fd,
+      inputSession?.remaining ?? latestRaw ?? raw,
+      isInput,
+      isDevice,
+    );
     if (inputSession) {
       ctx.state.fdInputSessions ??= new Map();
       ctx.state.fdInputSessions.set(fd, inputSession);
     }
-    // Then re-attach it to whichever of its original co-members is still
-    // open — they all share one description, so any survivor will do.
-    const survivor = aliases.find((member) => fds.has(member));
-    if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
+    if (description) {
+      description.add(fd);
+      ctx.state.fdAliases ??= new Map();
+      ctx.state.fdAliases.set(fd, description);
+      detachedDescriptionRaw.delete(description);
+    }
   }
 }
 

@@ -24,10 +24,10 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { resolveCookieInput } from "./cookie-input.js";
 import { encodeCurlData, generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
 import { parseOptions } from "./parse.js";
-import { resolveCookieInput } from "./cookie-input.js";
 import {
   applyWriteOut,
   extractFilename,
@@ -415,7 +415,7 @@ export const curlCommand: RuntimeCommand = {
           maxRedirects: options.maxRedirects,
           signal: ctx.signal,
           wantCookieJar: options.cookieJar !== undefined,
-          ...(cookieInput ? { cookieInput } : {}),
+          ...(cookieInput ? { cookieInput } : undefined),
         },
         options,
         ctx,

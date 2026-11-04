@@ -80,7 +80,7 @@ export function parseExpressions(
     } else if (arg === "-type") {
       if (i + 1 >= args.length) return missingArgument(arg);
       const fileType = args[++i];
-      if (fileType === "f" || fileType === "d") {
+      if (fileType === "f" || fileType === "d" || fileType === "l") {
         tokens.push({ type: "expr", expr: { type: "type", fileType } });
       } else {
         return {
