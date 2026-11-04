@@ -1,6 +1,6 @@
 import { EMPTY_BYTES } from "../../encoding.js";
 import { preserveAwkOutput } from "./execution-error.js";
-import { setFieldSeparator } from "./interpreter/fields.js";
+import { setVariable } from "./interpreter/variables.js";
 import { readProgramFiles } from "./program-files.js";
 import { countCharacters, setupMainInput } from "./records.js";
 /**
@@ -215,10 +215,13 @@ export const awkCommand2: RuntimeCommand = {
     });
     runtimeCtx.FS = fieldSepStr;
     // Use Object.assign with null-prototype to preserve safety
-    runtimeCtx.vars = Object.assign(Object.create(null), vars);
-    if (Object.hasOwn(vars, "FS"))
-      setFieldSeparator(runtimeCtx, String(vars.FS));
-    runtimeCtx.RS = Object.hasOwn(vars, "RS") ? String(vars.RS) : "\n";
+    runtimeCtx.vars = Object.create(null);
+    runtimeCtx.RS = "\n";
+    // -v assignments go through setVariable so special variables
+    // (FS, OFS, ORS, RS, SUBSEP, OFMT, ...) take effect like POSIX awk.
+    for (const [name, value] of Object.entries(vars)) {
+      setVariable(runtimeCtx, name, value);
+    }
 
     // Set up ARGC/ARGV
     // ARGV[0] is "awk", ARGV[1..n] are the input files
