@@ -415,3 +415,16 @@ nested shell wrappers retain the same input cursor. Cancellation removes pending
 source waiters without closing the outer input, and shared input/work/deadline
 limits remain enforced. Ordinary batch commands and shell pipelines retain their
 existing buffered processing. No host process or native terminal is introduced.
+
+## N7c explicit cookie input
+
+`curl -b/--cookie` accepts repeated literal values or VFS Netscape files;
+`-j` filters session entries from those files. Structured input reaches an
+explicit isolated host capability, never a raw Cookie request header. The
+ordinary secure transport rejects this capability. File reads and parsing
+retain the Shell work/input limits, and structured host timeouts keep exit 28.
+
+The browser host selects domain/path/secure/expiry and isolates each request
+in its own tab. It neither reads nor updates ambient cookies. Existing `-c`
+exports the actual browser jar for the final URL, including with `-b`; this
+is not a private curl session jar. Manual Cookie headers remain unsupported.

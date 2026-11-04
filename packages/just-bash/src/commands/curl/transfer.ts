@@ -13,6 +13,8 @@ export function curlTransportFailure(
   error: unknown,
 ): "timeout" | "network" | undefined {
   if (!(error instanceof Error)) return;
+  if ("code" in error && error.code === "AUTOMA_NETWORK_TIMEOUT")
+    return "timeout";
   if (error.name === "GuardedFetchError" && "code" in error) {
     if (error.code === "timeout") return "timeout";
     if (error.code === "network_error") {

@@ -108,6 +108,8 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     dataBinary: false,
     getMode: false,
     formFields: [],
+    cookieInputs: [],
+    junkSessionCookies: false,
     useRemoteName: false,
     headOnly: false,
     includeHeaders: false,
@@ -232,16 +234,23 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     } else if (
       arg === "--cookie" ||
       arg.startsWith("--cookie=") ||
-      arg.startsWith("-b") ||
-      arg === "--junk-session-cookies" ||
-      arg === "-j"
+      arg.startsWith("-b")
     ) {
-      return {
-        stdout: "",
-        stderr:
-          "curl: cookie input and session-cookie filtering are not supported\n",
-        exitCode: 2,
-      };
+      const value =
+        arg === "-b" || arg === "--cookie"
+          ? args[++i]
+          : arg.startsWith("--cookie=")
+            ? arg.slice(9)
+            : arg.slice(2);
+      if (value === undefined)
+        return {
+          stdout: "",
+          stderr: "curl: option --cookie: requires a parameter\n",
+          exitCode: 2,
+        };
+      options.cookieInputs.push(value);
+    } else if (arg === "--junk-session-cookies" || arg === "-j") {
+      options.junkSessionCookies = true;
     } else if (
       arg === "-c" ||
       arg === "--cookie-jar" ||

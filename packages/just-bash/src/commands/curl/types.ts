@@ -53,6 +53,8 @@ export interface CurlOptions {
   user?: string;
   uploadFile?: string;
   cookieJar?: string;
+  cookieInputs: string[];
+  junkSessionCookies: boolean;
   outputFile?: string;
   /**
    * `-D` / `--dump-header` destination. `"-"` writes headers to stdout;

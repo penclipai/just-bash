@@ -27,6 +27,7 @@ import { hasHelpFlag, showHelp } from "../help.js";
 import { encodeCurlData, generateMultipartBody } from "./form.js";
 import { curlHelp } from "./help.js";
 import { parseOptions } from "./parse.js";
+import { resolveCookieInput } from "./cookie-input.js";
 import {
   applyWriteOut,
   extractFilename,
@@ -395,6 +396,7 @@ export const curlCommand: RuntimeCommand = {
         resolvedData,
       );
       const headers = prepareHeaders(options, contentType);
+      const cookieInput = await resolveCookieInput(options, ctx);
 
       // Real curl truncates the dump file when the transfer starts, so a
       // failed connection does not leave stale headers from a prior run.
@@ -413,6 +415,7 @@ export const curlCommand: RuntimeCommand = {
           maxRedirects: options.maxRedirects,
           signal: ctx.signal,
           wantCookieJar: options.cookieJar !== undefined,
+          ...(cookieInput ? { cookieInput } : {}),
         },
         options,
         ctx,

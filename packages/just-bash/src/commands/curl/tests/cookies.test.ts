@@ -18,12 +18,6 @@ const response = {
 
 describe("explicit cookie jar capability", () => {
   it.each([
-    "-b sid=x",
-    "-bsid=x",
-    "--cookie sid=x",
-    "--cookie=@jar",
-    "-j",
-    "--junk-session-cookies",
     "-H 'Cookie: sid=x'",
     "--header='cookie: sid=x'",
   ])("rejects %s before dispatch", async (arg) => {
@@ -31,10 +25,64 @@ describe("explicit cookie jar capability", () => {
     const shell = new Bash({ fetch });
     const result = await shell.exec(`curl ${arg} ${url}`);
     expect(result).toMatchObject({ stdout: "", exitCode: 2 });
-    expect(result.stderr).toMatch(
-      /^curl: (?:cookie input and session-cookie filtering|Cookie header overrides) are not supported\n$/,
+    expect(result.stderr).toBe(
+      "curl: Cookie header overrides are not supported\n",
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it("passes repeated literals and filtered files to the host", async () => {
+    const fetch = vi.fn(async () => response);
+    const shell = new Bash({
+      fetch,
+      files: {
+        "/cookies":
+          "# Netscape HTTP Cookie File\n" +
+          "#HttpOnly_api.example.com\tFALSE\t/\tTRUE\t2000000000\ta\t1\n" +
+          "api.example.com\tFALSE\t/\tTRUE\t0\tsession\tignored\n",
+      },
+    });
+    expect(
+      await shell.exec(`curl -j -b /cookies -b x=2 --cookie=y=3 ${url}`),
+    ).toMatchObject({ stdout: "ok", stderr: "", exitCode: 0 });
+    expect(fetch.mock.calls[0][1]).toMatchObject({
+      cookieInput: {
+        literal: "x=2; y=3",
+        jar: [
+          {
+            domain: "api.example.com",
+            includeSubdomains: false,
+            path: "/",
+            secure: true,
+            expires: 2000000000,
+            name: "a",
+            value: "1",
+          },
+        ],
+      },
+    });
+  });
+  it("empty input disables ambient cookies and missing files fail", async () => {
+    const fetch = vi.fn(async () => response);
+    const shell = new Bash({ fetch });
+    expect(await shell.exec(`curl -b '' ${url}`)).toMatchObject({
+      exitCode: 0,
+    });
+    expect(fetch.mock.calls[0][1]).toMatchObject({
+      cookieInput: { literal: "", jar: [] },
+    });
+    fetch.mockClear();
+    expect((await shell.exec(`curl -b /missing ${url}`)).exitCode).not.toBe(0);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("preserves structured timeout through the isolated host", async () => {
+    const shell = new Bash({
+      fetch: async () => {
+        throw Object.assign(new Error("Extension host request failed"), {
+          code: "AUTOMA_NETWORK_TIMEOUT",
+        });
+      },
+    });
+    expect((await shell.exec(`curl -sS -b x=1 -m 1 ${url}`)).exitCode).toBe(28);
   });
   it.each([
     "-c /jar",
@@ -88,6 +136,9 @@ describe("explicit cookie jar capability", () => {
     await expect(fetch(url, { wantCookieJar: true })).rejects.toThrow(
       "Cookie jar export is not supported",
     );
+    await expect(
+      fetch(url, { cookieInput: { literal: "x=1", jar: [] } }),
+    ).rejects.toThrow("Cookie input is not supported");
   });
   it("jar write failures are visible", async () => {
     const fs = new InMemoryFs();

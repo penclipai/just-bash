@@ -74,6 +74,19 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw abortReason(signal);
 }
 
+export interface CookieInput {
+  literal: string;
+  jar: {
+    domain: string;
+    includeSubdomains: boolean;
+    path: string;
+    secure: boolean;
+    expires: number;
+    name: string;
+    value: string;
+  }[];
+}
+
 export interface SecureFetchOptions {
   method?: string;
   headers?: Headers | Record<string, string>;
@@ -83,6 +96,8 @@ export interface SecureFetchOptions {
   timeoutMs?: number;
   /** Request a host-produced Netscape jar; unsupported transports reject. */
   wantCookieJar?: boolean;
+  /** Explicit cookies require an isolated host transport; never a raw header. */
+  cookieInput?: CookieInput;
   /** Override redirects for this request (capped at the host policy). */
   maxRedirects?: number;
   /** Abort DNS review, redirects, transport, and response-body consumption. */
@@ -396,6 +411,9 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     url: string,
     options: SecureFetchOptions = {},
   ): Promise<FetchResult> {
+    if (options.cookieInput !== undefined) {
+      throw new Error("Cookie input is not supported by this transport");
+    }
     if (options.wantCookieJar) {
       throw new Error("Cookie jar export is not supported by this transport");
     }
