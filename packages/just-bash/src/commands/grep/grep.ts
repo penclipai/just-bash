@@ -1080,6 +1080,9 @@ async function expandRecursiveWithTypes(
       }
     }
 
+    // GNU grep (fts) drops trailing slashes before joining "dir/name"
+    const dirPrefix = `${path.replace(/\/+$/, "")}/`;
+
     // Use readdirWithFileTypes if available
     if (ctx.fs.readdirWithFileTypes) {
       useTraversalOperation(budget);
@@ -1088,7 +1091,7 @@ async function expandRecursiveWithTypes(
         useTraversalOperation(budget);
         if (entry.name.startsWith(".")) continue; // Skip hidden files
 
-        const entryPath = `${path}/${entry.name}`;
+        const entryPath = `${dirPrefix}${entry.name}`;
         await expandRecursiveWithTypes(
           entryPath,
           ctx,
@@ -1108,7 +1111,7 @@ async function expandRecursiveWithTypes(
         useTraversalOperation(budget);
         if (entry.startsWith(".")) continue; // Skip hidden files
 
-        const entryPath = `${path}/${entry}`;
+        const entryPath = `${dirPrefix}${entry}`;
         await expandRecursiveWithTypes(
           entryPath,
           ctx,
