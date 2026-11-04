@@ -10,6 +10,7 @@ import type {
 } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { formatStrftime } from "../printf/strftime.js";
+import { parseRelativeDate } from "./relative-date.js";
 
 const dateHelp = {
   name: "date",
@@ -136,6 +137,19 @@ export function parseDate(s: string, tz?: string): Date | null {
   if (l === "now" || l === "today") return new Date();
   if (l === "yesterday") return new Date(Date.now() - 86400000);
   if (l === "tomorrow") return new Date(Date.now() + 86400000);
+  const relative = parseRelativeDate(s, {
+    parseBase: (base) => parseDate(base, tz),
+    toWall: (d) => (tz ? tzShownAsUtc(d, tz) : new Date(d.getTime())),
+    fromWall: (wall) =>
+      tz
+        ? parseBareISOInTimezone(
+            wall.toISOString().slice(0, 19).replace("T", " "),
+            tz,
+          )
+        : wall,
+    now: () => new Date(),
+  });
+  if (relative !== undefined) return relative;
   // For bare ISO strings (no explicit offset/Z), interpret in the requested timezone
   if (tz && !/Z$/i.test(s) && !/[+-]\d{2}:?\d{2}$/.test(s)) {
     if (/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/.test(s)) {
