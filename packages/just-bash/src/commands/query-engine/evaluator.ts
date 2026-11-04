@@ -25,6 +25,7 @@ import {
   evalSqlBuiltin,
   evalStringBuiltin,
   evalTypeBuiltin,
+  formatInterpolated,
 } from "./builtins/index.js";
 import { formatJsonValue } from "./json-output.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
@@ -155,6 +156,8 @@ export interface EvalContext {
   coverage?: FeatureCoverageWriter;
   /** Shared across every recursive evaluation and builtin invocation. */
   budget: QueryEvaluationBudget;
+  /** jq quotes every string in @csv; yq only quotes when needed. */
+  csvQuoteStrings?: boolean;
 }
 
 export interface QueryEvaluationBudget {
@@ -260,6 +263,7 @@ function createContext(options?: EvaluateOptions): EvalContext {
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
     budget: options?.budget ?? { operations: 0, callDepth: 0 },
+    csvQuoteStrings: options?.csvQuoteStrings,
   };
 }
 
@@ -494,6 +498,8 @@ export interface EvaluateOptions {
   requireDefenseContext?: boolean;
   /** Reuse across multiple input documents to enforce one command budget. */
   budget?: QueryEvaluationBudget;
+  /** jq quotes every string in @csv; yq only quotes when needed. */
+  csvQuoteStrings?: boolean;
 }
 
 /**
@@ -1021,7 +1027,18 @@ function evaluateNode(
               "recursion",
             );
           }
-          output.append(typeof v === "string" ? v : JSON.stringify(v));
+          output.append(
+            ast.format
+              ? formatInterpolated(
+                  v,
+                  ast.format,
+                  ctx.limits.maxDepth,
+                  ctx.csvQuoteStrings,
+                )
+              : typeof v === "string"
+                ? v
+                : JSON.stringify(v),
+          );
         }
       }
       return [output.build()];
@@ -1938,7 +1955,12 @@ function evalBuiltin(
   const dateResult = evalDateBuiltin(value, name, args, ctx, evaluate);
   if (dateResult !== null) return dateResult;
 
-  const formatResult = evalFormatBuiltin(value, name, ctx.limits.maxDepth);
+  const formatResult = evalFormatBuiltin(
+    value,
+    name,
+    ctx.limits.maxDepth,
+    ctx.csvQuoteStrings,
+  );
   if (formatResult !== null) return formatResult;
 
   const typeResult = evalTypeBuiltin(value, name);

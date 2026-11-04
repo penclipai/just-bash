@@ -40,6 +40,7 @@ export function evalFormatBuiltin(
   value: QueryValue,
   name: string,
   maxDepth?: number,
+  csvQuoteStrings = false,
 ): QueryValue[] | null {
   switch (name) {
     case "@base64":
@@ -93,6 +94,7 @@ export function evalFormatBuiltin(
         // Only quote strings that contain special characters (comma, quote, newline)
         const s = String(v);
         if (
+          csvQuoteStrings ||
           s.includes(",") ||
           s.includes('"') ||
           s.includes("\n") ||
@@ -155,4 +157,30 @@ export function evalFormatBuiltin(
     default:
       return null;
   }
+}
+
+/**
+ * Apply a format to one value interpolated into a format string
+ * (`@base64 "id=\(.id)"`). Like jq, scalars that a format only accepts as
+ * text (e.g. @base64 on a number) are converted with tostring first.
+ */
+export function formatInterpolated(
+  value: QueryValue,
+  name: string,
+  maxDepth?: number,
+  csvQuoteStrings = false,
+): string {
+  const direct = evalFormatBuiltin(value, name, maxDepth, csvQuoteStrings);
+  if (direct === null) throw new Error(`${name} is not a valid format`);
+  if (typeof direct[0] === "string") return direct[0];
+  if (typeof value !== "string") {
+    const text = evalFormatBuiltin(
+      JSON.stringify(value),
+      name,
+      maxDepth,
+      csvQuoteStrings,
+    );
+    if (text && typeof text[0] === "string") return text[0];
+  }
+  throw new Error(`${JSON.stringify(value)} cannot be ${name}-formatted`);
 }

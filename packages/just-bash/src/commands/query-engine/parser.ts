@@ -1106,6 +1106,19 @@ class Parser {
         return { type: "Call", name, args };
       }
 
+      // Format string: @base64 "x\\(.y)" formats each interpolated value
+      if (name.startsWith("@") && this.check("STRING")) {
+        const str = this.advance();
+        const node: StringInterpNode = str.interpolationOffsets?.length
+          ? this.parseStringInterpolation(
+              str.value as string,
+              str.interpolationOffsets,
+            )
+          : { type: "StringInterp", parts: [str.value as string] };
+        node.format = name;
+        return node;
+      }
+
       // Builtin without parens
       return { type: "Call", name, args: [] };
     }

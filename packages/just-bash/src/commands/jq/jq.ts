@@ -529,6 +529,7 @@ export const jqCommand: RuntimeCommand = {
         coverage: ctx.coverage,
         requireDefenseContext: ctx.requireDefenseContext,
         budget: { operations: 0, callDepth: 0 },
+        csvQuoteStrings: true,
       };
       const appendValues = (target: QueryValue[], next: QueryValue[]): void => {
         if (next.length > ctx.limits.maxQueryElements - target.length) {

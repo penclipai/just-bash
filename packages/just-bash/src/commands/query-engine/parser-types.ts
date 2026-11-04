@@ -253,6 +253,8 @@ export interface OptionalNode {
 export interface StringInterpNode {
   type: "StringInterp";
   parts: (string | AstNode)[];
+  /** jq format string (`@csv "\\(.x)"`): applied to each interpolated value */
+  format?: string;
 }
 
 export interface UpdateOpNode {

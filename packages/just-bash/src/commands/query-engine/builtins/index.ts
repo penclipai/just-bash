@@ -7,7 +7,7 @@
 export { evalArrayBuiltin } from "./array-builtins.js";
 export { evalControlBuiltin } from "./control-builtins.js";
 export { evalDateBuiltin } from "./date-builtins.js";
-export { evalFormatBuiltin } from "./format-builtins.js";
+export { evalFormatBuiltin, formatInterpolated } from "./format-builtins.js";
 export { evalIndexBuiltin } from "./index-builtins.js";
 export { evalMathBuiltin } from "./math-builtins.js";
 export { evalNavigationBuiltin } from "./navigation-builtins.js";
