@@ -11,6 +11,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("utf8ByteLength with a Buffer polyfill", () => {
+  it("never materializes an encoded copy through Buffer.byteLength", () => {
+    vi.stubGlobal("Buffer", {
+      byteLength: () => {
+        throw new Error("polyfill byteLength must not be used");
+      },
+    });
+    try {
+      expect(utf8ByteLength("a\u00e9\u6c34\u{1F600}")).toBe(10);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe.each([false, true])("byte conversion (browser: %s)", (browser) => {
   it("counts UTF-8 bytes without changing surrogate handling", () => {
     const cases = [
