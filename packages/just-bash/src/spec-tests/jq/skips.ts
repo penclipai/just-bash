@@ -119,7 +119,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // ============================================================
   // String interpolation edge cases
   // ============================================================
-  ['jq.test:@html "<b>\\(.)</b>"', "String interpolation in @html"],
   ['jq.test:{"a",b,"a$\\(1+1)"}', "String interpolation in object key"],
 
   // ============================================================
@@ -232,10 +231,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
   ["man.test:env.PAGER", "env.PAGER not set in sandbox"],
   ["man.test:$ENV.PAGER", "$ENV.PAGER not set in sandbox"],
-  [
-    'man.test:@sh "echo \\(.)"',
-    "@sh format with string interpolation not supported",
-  ],
   [
     "man.test:.[] as {$a, $b, c: {$d, $e}} ?// {$a, $b, c: [{$d, $e}]} | {$a, $b, $d, $e}",
     "?// alternative with complex destructuring patterns",
