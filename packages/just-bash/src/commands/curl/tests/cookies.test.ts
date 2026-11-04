@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Bash } from "../../../Bash.js";
 import { InMemoryFs } from "../../../fs/in-memory-fs/in-memory-fs.js";
-import { createSecureFetch } from "../../../network/fetch.js";
+import { createSecureFetch, type SecureFetch } from "../../../network/fetch.js";
 
 const url = "https://api.example.com/data";
 const jar =
@@ -31,7 +31,7 @@ describe("explicit cookie jar capability", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
   it("passes repeated literals and filtered files to the host", async () => {
-    const fetch = vi.fn(async () => response);
+    const fetch = vi.fn<SecureFetch>(async () => response);
     const shell = new Bash({
       fetch,
       files: {
@@ -62,7 +62,7 @@ describe("explicit cookie jar capability", () => {
     });
   });
   it("empty input disables ambient cookies and missing files fail", async () => {
-    const fetch = vi.fn(async () => response);
+    const fetch = vi.fn<SecureFetch>(async () => response);
     const shell = new Bash({ fetch });
     expect(await shell.exec(`curl -b '' ${url}`)).toMatchObject({
       exitCode: 0,
