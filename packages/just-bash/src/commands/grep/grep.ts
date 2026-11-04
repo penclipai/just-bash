@@ -1089,7 +1089,6 @@ async function expandRecursiveWithTypes(
       const entries = await ctx.fs.readdirWithFileTypes(fullPath);
       for (const entry of entries) {
         useTraversalOperation(budget);
-        if (entry.name.startsWith(".")) continue; // Skip hidden files
 
         const entryPath = `${dirPrefix}${entry.name}`;
         await expandRecursiveWithTypes(
@@ -1109,7 +1108,6 @@ async function expandRecursiveWithTypes(
       const entries = await ctx.fs.readdir(fullPath);
       for (const entry of entries) {
         useTraversalOperation(budget);
-        if (entry.startsWith(".")) continue; // Skip hidden files
 
         const entryPath = `${dirPrefix}${entry}`;
         await expandRecursiveWithTypes(
