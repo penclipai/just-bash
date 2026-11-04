@@ -19,7 +19,9 @@ describe("awk bare length", () => {
 
   it("keeps length(x) and length() working", async () => {
     const env = new Bash();
-    const r = await env.exec(`echo hello | awk '{ print length(), length("xy") }'`);
+    const r = await env.exec(
+      `echo hello | awk '{ print length(), length("xy") }'`,
+    );
     expect(r.stdout).toBe("5 2\n");
   });
 });
