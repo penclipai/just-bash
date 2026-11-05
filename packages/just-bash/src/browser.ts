@@ -52,6 +52,11 @@ export {
   type MountableFsOptions,
   type MountConfig,
 } from "./fs/mountable-fs/index.js";
+export {
+  type OutputFileAppender,
+  registerOutputFileAppender,
+  tryAppendOutputFile,
+} from "./fs/output-write.js";
 export type { NetworkConfig } from "./network/index.js";
 export {
   NetworkAccessDeniedError,
@@ -61,12 +66,12 @@ export {
 export type {
   BashExecResult,
   Command,
-  ShellJobInfo,
-  ShellJobSnapshot,
   CommandContext,
   EnvironmentInfo,
   ExecResult,
   IFileSystem,
   ResolvedCommandContext,
+  ShellJobInfo,
+  ShellJobSnapshot,
   VirtualFileMetadata,
 } from "./types.js";

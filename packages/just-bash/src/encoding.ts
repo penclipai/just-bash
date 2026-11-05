@@ -16,6 +16,8 @@
  * (decode — process as text). Pick one explicitly per call site.
  */
 
+import { stringFromBytes } from "./byte-string.js";
+
 declare const __byteString: unique symbol;
 export interface ByteString {
   readonly [__byteString]: true;
@@ -145,31 +147,6 @@ export function encodeUtf8ToBytes(
 
 /** The empty `ByteString`. */
 export const EMPTY_BYTES: ByteString = "" as unknown as ByteString;
-
-const BYTE_STRING_CHUNK_SIZE = 8192;
-
-/** Convert bytes to a latin1-shaped string in bounded chunks. */
-function stringFromBytes(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") {
-    // Share only the supplied view; Buffer.from(bytes) would copy the input.
-    return Buffer.from(
-      bytes.buffer,
-      bytes.byteOffset,
-      bytes.byteLength,
-    ).toString("latin1");
-  }
-  const chunks: string[] = [];
-  // Spreading a typed array expands its iterator into temporary argument
-  // storage. Reuse a bounded numeric array for the portable conversion.
-  const codes: number[] = [];
-  for (let i = 0; i < bytes.length; i += BYTE_STRING_CHUNK_SIZE) {
-    const length = Math.min(BYTE_STRING_CHUNK_SIZE, bytes.length - i);
-    codes.length = length;
-    for (let j = 0; j < length; j++) codes[j] = bytes[i + j];
-    chunks.push(String.fromCharCode.apply(null, codes));
-  }
-  return chunks.join("");
-}
 
 /**
  * Convert a `Uint8Array` to a `ByteString`. Each byte becomes one char.

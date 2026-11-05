@@ -26,6 +26,7 @@ Automa records the exact fork commit, build inputs and artifact hashes in
 | process-substitution-bytes and command-substitution-text | Interpreter substitution/expansion helpers | Private FD bytes, adjacent UTF-8 reconstruction, trailing newline removal and cleanup |
 | utf8-data-bom and printf/echo bytes | `src/encoding.ts`, `src/Bash.ts`, `src/commands/{printf,echo}/` | BOM data, invalid UTF-8, exact byte escape output and budgets |
 | head/tail byte-array selection | `src/commands/head/head-tail-bytes.ts` and shared file input | Select raw line/byte ranges before string conversion; retain full input accounting, optional byte-string FS and stdin behavior |
+| browser byte conversion and conditional output append | `src/byte-string.ts`, `src/fs/output-write.ts`, output endpoints | Bounded Latin1 batches retain every byte and Node's native path; optional owner append preserves cursor, failure prefixes, umask, capture and writer order |
 | trap-builtin | Interpreter `traps.ts`, lifecycle and set/shopt/exit | Frozen GNU Bash fixtures, ERR/EXIT, Stop and failure unwinds; unsupported RETURN/DEBUG fail explicitly |
 | redirection-errno, directory globs, env inheritance | Interpreter redirections, `src/shell/glob.ts`, `src/Bash.ts` | COW-style EISDIR, trailing slash matching, `env ... bash -c` export inheritance |
 | re2-compiler | `scripts/patch-re2js-compiler.mjs`, locked `patches/re2js@1.3.3.patch` | Complete programs/capture order and rejections for 46 patterns, including a 256 KiB native stack |

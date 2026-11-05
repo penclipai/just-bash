@@ -1,14 +1,15 @@
-import { writeOutputFile } from "../fs/output-write.js";
 import {
   encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
+  utf8ByteLength,
 } from "../encoding.js";
-import { ExecutionAbortedError } from "./errors.js";
 import type { ExecutionScope } from "../execution-scope.js";
-import type { InterpreterContext } from "./types.js";
+import { tryAppendOutputFile, writeOutputFile } from "../fs/output-write.js";
+import { ExecutionAbortedError } from "./errors.js";
 import { writeFdEntry } from "./fd-table.js";
 import type { PreparedRedirections } from "./redirections.js";
+import type { InterpreterContext } from "./types.js";
 
 export type OutputEndpoint = {
   readonly closed?: boolean;
@@ -82,6 +83,19 @@ export function bindOutputEndpoints(
                   encoding,
                 );
               else {
+                if (
+                  await tryAppendOutputFile(
+                    ctx.fs,
+                    sink.path,
+                    position,
+                    text,
+                    encoding,
+                  )
+                ) {
+                  position +=
+                    kind === "bytes" ? text.length : utf8ByteLength(text);
+                  return;
+                }
                 const bytes =
                   kind === "bytes"
                     ? text

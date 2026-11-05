@@ -22,6 +22,36 @@ type OutputFileWriter = (
 ) => Promise<void>;
 const writers = new WeakMap<IFileSystem, OutputFileWriter>();
 
+/** A size mismatch returns false without any filesystem effect. */
+export type OutputFileAppender = (
+  path: string,
+  expectedSize: number,
+  content: FileContent,
+  options?: WriteOptions,
+) => Promise<boolean>;
+const appenders = new WeakMap<IFileSystem, OutputFileAppender>();
+
+/** Only trusted output routing can invoke this optional atomic capability. */
+export function registerOutputFileAppender(
+  fs: IFileSystem,
+  appender: OutputFileAppender,
+): void {
+  appenders.set(fs, appender);
+}
+
+export function tryAppendOutputFile(
+  fs: IFileSystem,
+  path: string,
+  expectedSize: number,
+  content: FileContent,
+  options?: WriteOptions,
+): Promise<boolean> {
+  return (
+    appenders.get(fs)?.(path, expectedSize, content, options) ??
+    Promise.resolve(false)
+  );
+}
+
 /** Trusted routing authority is not a method on the command's FS capability. */
 export function registerOutputFileWriter(
   fs: IFileSystem,

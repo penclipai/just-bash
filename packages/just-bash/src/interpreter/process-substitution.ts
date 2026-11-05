@@ -1,15 +1,15 @@
+import type { ResourceLease } from "../execution-scope.js";
 import { shareFileSystemIdentity } from "../fs/identity.js";
 import {
   type OutputWriteProvenance,
   registerOutputFileWriter,
   writeOutputFile,
 } from "../fs/output-write.js";
-import { bindShellFileSystem, rebindShellFileSystem } from "./umask-fs.js";
-import { allocateShellPid } from "./shell-jobs.js";
-import type { ResourceLease } from "../execution-scope.js";
 import { setFdEntry } from "./fd-table.js";
+import { allocateShellPid } from "./shell-jobs.js";
 import { beginIsolatedShellState } from "./state-transaction.js";
 import { automaTrapChild } from "./traps.js";
+import { bindShellFileSystem, rebindShellFileSystem } from "./umask-fs.js";
 /**
  * Process Substitution
  *
@@ -366,6 +366,8 @@ function captureFileSystem(
     },
   });
   shareFileSystemIdentity(facade, fs);
+  // Conditional appends stay disabled here: capture credits use the routed
+  // writer below, so they must not bypass its per-write accounting.
   registerOutputFileWriter(facade, (key, path, content, options, provenance) =>
     write(key, path, content, options, true, provenance),
   );

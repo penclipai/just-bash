@@ -2,6 +2,7 @@
  * Shared utilities for filesystem implementations
  */
 
+import { stringFromBytes } from "../byte-string.js";
 import type {
   BufferEncoding,
   ReadFileOptions,
@@ -77,22 +78,7 @@ export function fromBuffer(
       .join("");
   }
   if (encoding === "binary" || encoding === "latin1") {
-    // Use Buffer if available (Node.js) - much more efficient and avoids spread operator limits
-    if (typeof Buffer !== "undefined") {
-      return Buffer.from(buffer).toString(encoding);
-    }
-
-    // Bound argument counts because engine limits depend on available stack space.
-    const chunkSize = 8192; // 8KB chunks
-    if (buffer.length <= chunkSize) {
-      return String.fromCharCode(...buffer);
-    }
-    let result = "";
-    for (let i = 0; i < buffer.length; i += chunkSize) {
-      const chunk = buffer.subarray(i, i + chunkSize);
-      result += String.fromCharCode(...chunk);
-    }
-    return result;
+    return stringFromBytes(buffer);
   }
   // Default to UTF-8 for text content
   return textDecoder.decode(buffer);

@@ -1,11 +1,13 @@
-import { shareFileSystemIdentity } from "../fs/identity.js";
-import {
-  registerOutputFileWriter,
-  writeOutputFile,
-} from "../fs/output-write.js";
 import type { ExecutionScope } from "../execution-scope.js";
 import { createExclusiveOn } from "../fs/create-exclusive.js";
+import { shareFileSystemIdentity } from "../fs/identity.js";
 import type { IFileSystem } from "../fs/interface.js";
+import {
+  registerOutputFileAppender,
+  registerOutputFileWriter,
+  tryAppendOutputFile,
+  writeOutputFile,
+} from "../fs/output-write.js";
 import { dirname } from "../fs/path-utils.js";
 import { FileTraversalBudget } from "../fs/traversal.js";
 import type { ExecutionLimits } from "../limits.js";
@@ -169,6 +171,15 @@ export function withUmaskFileSystem(
     facade.readdirWithFileTypes = fs.readdirWithFileTypes.bind(fs);
   if (fs.createExclusive) facade.createExclusive = fs.createExclusive.bind(fs);
   shareFileSystemIdentity(facade, fs);
+  registerOutputFileAppender(
+    facade,
+    async (path, expectedSize, content, options) => {
+      // The conditional operation must not recreate a removed output target.
+      const target = mask() === 0o022 ? path : await fs.realpath(path);
+      scope.throwIfAborted("umask output");
+      return tryAppendOutputFile(fs, target, expectedSize, content, options);
+    },
+  );
   registerOutputFileWriter(
     facade,
     async (kind, path, content, options, provenance) => {
