@@ -93,7 +93,7 @@ console.log('SPAWN_MARKER=' + String(fs.existsSync(marker)));
   });
 
   it(
-    "blocks nested js-exec when launched in background through bash -c",
+    "blocks nested js-exec in background bash",
     { timeout: 30000 },
     async () => {
       const env = new Bash({
@@ -136,18 +136,15 @@ console.log('BG_MARKER=' + String(fs.existsSync(marker)));
     },
   );
 
-  it(
-    "blocks nested js-exec when backgrounded without wait",
-    { timeout: 30000 },
-    async () => {
-      const env = new Bash({
-        javascript: true,
-        executionLimits: { maxJsTimeoutMs: 1500 },
-        files: {
-          "/tmp/nested-bg-nowait.js": `
+  it("blocks background js-exec without wait", { timeout: 30000 }, async () => {
+    const env = new Bash({
+      javascript: true,
+      executionLimits: { maxJsTimeoutMs: 1500 },
+      files: {
+        "/tmp/nested-bg-nowait.js": `
 require('fs').writeFileSync('/tmp/jb_nested_bg_nowait_marker','1')
 `,
-          "/tmp/probe-bg-nowait.js": `
+        "/tmp/probe-bg-nowait.js": `
 const cp = require('child_process');
 const marker = '/tmp/jb_nested_bg_nowait_marker';
 const nestedOut = '/tmp/jb_nested_bg_nowait.out';
@@ -164,42 +161,38 @@ console.log('NOWAIT_MARKER=' + String(fs.existsSync(marker)));
 console.log('NOWAIT_NOUT=' + String(fs.existsSync(nestedOut) ? fs.readFileSync(nestedOut, 'utf8').trim() : 'NOOUT'));
 console.log('NOWAIT_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(nestedErr, 'utf8').trim() : 'NOERR'));
 `,
-        },
-      });
+      },
+    });
 
-      const started = Date.now();
-      const result = await env.exec("js-exec /tmp/probe-bg-nowait.js");
-      const elapsedMs = Date.now() - started;
+    const started = Date.now();
+    const result = await env.exec("js-exec /tmp/probe-bg-nowait.js");
+    const elapsedMs = Date.now() - started;
 
-      expect(result.stdout).toBe(
-        [
-          "NOWAIT_STATUS=1",
-          "NOWAIT_STDERR=",
-          "NOWAIT_MARKER=false",
-          "NOWAIT_NOUT=",
-          "NOWAIT_NERR=js-exec: recursive invocation is not supported",
-          "",
-        ].join("\n"),
-      );
-      expect(result.stderr).toBe("");
-      expect(result.exitCode).toBe(0);
-      expect(elapsedMs).toBeLessThan(5000);
-      assertExecResultSafe(result);
-    },
-  );
+    expect(result.stdout).toBe(
+      [
+        "NOWAIT_STATUS=0",
+        "NOWAIT_STDERR=",
+        "NOWAIT_MARKER=false",
+        "NOWAIT_NOUT=",
+        "NOWAIT_NERR=js-exec: recursive invocation is not supported",
+        "",
+      ].join("\n"),
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(elapsedMs).toBeLessThan(5000);
+    assertExecResultSafe(result);
+  });
 
-  it(
-    "blocks delayed nested js-exec launched from background subshell",
-    { timeout: 30000 },
-    async () => {
-      const env = new Bash({
-        javascript: true,
-        executionLimits: { maxJsTimeoutMs: 2000 },
-        files: {
-          "/tmp/nested-bg-delayed.js": `
+  it("blocks delayed background js-exec", { timeout: 30000 }, async () => {
+    const env = new Bash({
+      javascript: true,
+      executionLimits: { maxJsTimeoutMs: 2000 },
+      files: {
+        "/tmp/nested-bg-delayed.js": `
 require('fs').writeFileSync('/tmp/jb_nested_bg_delayed_marker','1')
 `,
-          "/tmp/probe-bg-delayed.js": `
+        "/tmp/probe-bg-delayed.js": `
 const cp = require('child_process');
 const marker = '/tmp/jb_nested_bg_delayed_marker';
 const nestedOut = '/tmp/jb_nested_bg_delayed.out';
@@ -216,29 +209,28 @@ console.log('DELAY_MARKER=' + String(fs.existsSync(marker)));
 console.log('DELAY_NOUT=' + String(fs.existsSync(nestedOut) ? fs.readFileSync(nestedOut, 'utf8').trim() : 'NOOUT'));
 console.log('DELAY_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(nestedErr, 'utf8').trim() : 'NOERR'));
 `,
-        },
-      });
+      },
+    });
 
-      const started = Date.now();
-      const result = await env.exec("js-exec /tmp/probe-bg-delayed.js");
-      const elapsedMs = Date.now() - started;
+    const started = Date.now();
+    const result = await env.exec("js-exec /tmp/probe-bg-delayed.js");
+    const elapsedMs = Date.now() - started;
 
-      expect(result.stdout).toBe(
-        [
-          "DELAY_STATUS=1",
-          "DELAY_STDERR=",
-          "DELAY_MARKER=false",
-          "DELAY_NOUT=",
-          "DELAY_NERR=js-exec: recursive invocation is not supported",
-          "",
-        ].join("\n"),
-      );
-      expect(result.stderr).toBe("");
-      expect(result.exitCode).toBe(0);
-      expect(elapsedMs).toBeLessThan(7000);
-      assertExecResultSafe(result);
-    },
-  );
+    expect(result.stdout).toBe(
+      [
+        "DELAY_STATUS=0",
+        "DELAY_STDERR=",
+        "DELAY_MARKER=false",
+        "DELAY_NOUT=",
+        "DELAY_NERR=js-exec: recursive invocation is not supported",
+        "",
+      ].join("\n"),
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(elapsedMs).toBeLessThan(7000);
+    assertExecResultSafe(result);
+  });
 
   it("does not expose an exec bridge to Promise microtasks", async () => {
     const env = new Bash({ javascript: true });

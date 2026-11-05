@@ -110,7 +110,12 @@ export async function executePipeline(
           executeCommand(command, stdin, !isFirst),
         );
       result = ctx.output
-        ? await ctx.output.pipeline(!isLast, pipeStderrToNext, execute)
+        ? await ctx.output.pipeline(
+            !isLast,
+            pipeStderrToNext,
+            execute,
+            ctx.substitutionDepth,
+          )
         : await execute();
     } catch (error) {
       // BadSubstitutionError should fail the command but not abort the script

@@ -978,6 +978,7 @@ async function executeWithRunInner(
                   "Command execution not available in this context.",
                 );
               const execOptions: CommandExecOptions = {
+                onOutputBytes: async () => {},
                 cwd: ctx.cwd,
                 env,
                 signal: getHostFunctionContext().abortSignal,
@@ -1001,6 +1002,7 @@ async function executeWithRunInner(
                 () =>
                   ctx.exec?.(shellJoinArgs([command]), {
                     // Preserve spawnSync's argv-only executable semantics.
+                    onOutputBytes: async () => {},
                     args: args.map(String),
                     cwd: ctx.cwd,
                     env,

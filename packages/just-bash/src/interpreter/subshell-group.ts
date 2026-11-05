@@ -1,3 +1,4 @@
+import { allocateShellPid } from "./shell-jobs.js";
 import { automaTrapChild } from "./traps.js";
 /**
  * Subshell, Group, and Script Execution
@@ -68,7 +69,7 @@ export async function executeSubshell(
   const restoreState = beginIsolatedShellState(ctx.state);
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
   ctx.state.loopDepth = 0;
-  ctx.state.bashPid = ctx.state.nextVirtualPid++;
+  ctx.state.bashPid = allocateShellPid(ctx);
   try {
     return await withPreparedRedirections(
       ctx,
@@ -353,7 +354,7 @@ export async function executeUserScript(
   // Set up subshell-like environment
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
   ctx.state.loopDepth = 0;
-  ctx.state.bashPid = ctx.state.nextVirtualPid++;
+  ctx.state.bashPid = allocateShellPid(ctx);
   if (stdin) {
     ctx.state.groupStdin = stdin;
   }

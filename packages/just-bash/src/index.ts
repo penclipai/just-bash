@@ -138,6 +138,8 @@ export type {
 export type {
   BashExecResult,
   Command,
+  ShellJobInfo,
+  ShellJobSnapshot,
   CommandContext,
   EnvironmentInfo,
   ExecResult,

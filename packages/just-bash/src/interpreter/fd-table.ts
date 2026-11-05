@@ -1,3 +1,4 @@
+import { writeOutputFile } from "../fs/output-write.js";
 /**
  * File Descriptor Table
  *
@@ -502,7 +503,7 @@ export async function writeFdEntry(
   encoding: "binary" | "utf8",
 ): Promise<FdEntry | false> {
   if (entry.kind === "output") {
-    await ctx.fs.appendFile(entry.path, content, encoding);
+    await writeOutputFile(ctx.fs, "appendFile", entry.path, content, encoding);
     return entry;
   }
   if (entry.kind !== "readwrite") return false;
@@ -526,7 +527,13 @@ export async function writeFdEntry(
     position: writeEntry.position + content.length,
     content: updatedContent,
   };
-  await ctx.fs.writeFile(writeEntry.path, updatedContent, encoding);
+  await writeOutputFile(
+    ctx.fs,
+    "writeFile",
+    writeEntry.path,
+    updatedContent,
+    encoding,
+  );
   const raw = encodeFdEntry(updated);
   descriptionsFor(ctx).set(updated, description);
   let live = false;

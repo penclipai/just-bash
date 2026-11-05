@@ -22,6 +22,12 @@ export function bindPipelineOutput(
   ctx: InterpreterContext,
   pipeStderr: boolean,
 ): () => void {
+  const savedEndpoints = ctx.outputEndpoints;
+  ctx.outputEndpoints = {
+    ...savedEndpoints,
+    stdout: undefined,
+    stderr: pipeStderr ? undefined : savedEndpoints?.stderr,
+  };
   const fds = pipeStderr ? [1, 2] : [1];
   const snapshot = snapshotFds(ctx, fds);
   const closed = new Set(
@@ -31,6 +37,7 @@ export function bindPipelineOutput(
   closeFd(ctx, 1);
   ctx.state.closedStandardFds?.delete(1);
   return () => {
+    ctx.outputEndpoints = savedEndpoints;
     restoreFds(ctx, snapshot);
     for (const fd of fds) {
       if (closed.has(fd)) {

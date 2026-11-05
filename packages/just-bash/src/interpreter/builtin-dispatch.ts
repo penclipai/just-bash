@@ -1,3 +1,4 @@
+import { waitForShellJobs } from "./background-wait.js";
 import { missingCommandHint } from "./missing-command-hints.js";
 import { automaTrapBuiltin } from "./traps.js";
 /**
@@ -325,6 +326,14 @@ function createRevocableCommandContext(
     ),
     coverage: dataDescriptor(
       context.coverage ? wrapCapability(context.coverage) : undefined,
+    ),
+    getShellJobSnapshot: dataDescriptor(
+      context.getShellJobSnapshot
+        ? () => {
+            assertActive();
+            return context.getShellJobSnapshot!();
+          }
+        : undefined,
     ),
     writeOutput: dataDescriptor(wrapFunction(context.writeOutput)),
     readStdin: dataDescriptor(wrapFunction(context.readStdin)),
@@ -665,8 +674,7 @@ export async function dispatchBuiltin(
     return { ...result, internalProducerOmitsShellPrefix: true };
   }
   if (commandName === "wait") {
-    // wait - wait for background jobs (stub: no-op in this context)
-    return OK;
+    return waitForShellJobs(ctx, args);
   }
   if (commandName === "type") {
     return await handleTypeHelper(
@@ -966,6 +974,7 @@ export async function executeExternalCommand(
     return { ...result, ...streamed.build(result.exitCode) };
   };
   const cmdCtx: RuntimeCommandContext = {
+    getShellJobSnapshot: () => ctx.executionScope.shellJobs.snapshot(ctx.state),
     writeOutput: async (text, stream, kind = "text") => {
       if (
         typeof text !== "string" ||

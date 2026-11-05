@@ -1,3 +1,5 @@
+import { bindPipelineOutput } from "./pipeline-redirections.js";
+import { allocateShellPid } from "./shell-jobs.js";
 import { commandSubstitutionText } from "../execution-output.js";
 import { automaTrapChild } from "./traps.js";
 /**
@@ -817,7 +819,9 @@ async function expandPart(
 
       // Command substitutions get a new BASHPID (unlike $$ which stays the same)
       const savedBashPid = ctx.state.bashPid;
-      ctx.state.bashPid = ctx.state.nextVirtualPid++;
+      const savedBackgroundPid = ctx.state.lastBackgroundPid;
+      const savedShellPpid = ctx.state.shellPpid;
+      ctx.state.bashPid = allocateShellPid(ctx);
       // Save environment - command substitutions run in a subshell and should not
       // modify parent environment (e.g., aliases defined inside $() should not leak)
       const savedEnv = new Map(ctx.state.env);
@@ -827,12 +831,15 @@ async function expandPart(
       // bash only prints verbose output for the main script
       const savedSuppressVerbose = ctx.state.suppressVerbose;
       ctx.state.suppressVerbose = true;
+      const capture = ctx.output?.captureResult(ctx.substitutionDepth);
+      const restoreCaptureOutput = bindPipelineOutput(ctx, false);
       try {
-        const result = await automaTrapChild(
+        const executed = await automaTrapChild(
           ctx,
           () => ctx.executeScript(part.body),
           "command",
         );
+        const result = capture?.finish(executed) ?? executed;
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
@@ -848,6 +855,8 @@ async function expandPart(
             (ctx.state.expansionStderr || "") + result.stderr;
         }
         ctx.state.bashPid = savedBashPid;
+        ctx.state.lastBackgroundPid = savedBackgroundPid;
+        ctx.state.shellPpid = savedShellPpid;
         ctx.substitutionDepth = savedDepth;
         const output = commandSubstitutionText(result).replace(/\n+$/, "");
         // Check string length limit for command substitution output
@@ -858,11 +867,14 @@ async function expandPart(
         );
         return output;
       } catch (error) {
+        capture?.close();
         // Restore environment on error as well
         ctx.state.env = savedEnv;
         ctx.state.arrays = savedArrays;
         ctx.state.cwd = savedCwd;
         ctx.state.bashPid = savedBashPid;
+        ctx.state.lastBackgroundPid = savedBackgroundPid;
+        ctx.state.shellPpid = savedShellPpid;
         ctx.substitutionDepth = savedDepth;
         ctx.state.suppressVerbose = savedSuppressVerbose;
         // ExecutionLimitError must always propagate - these are safety limits
@@ -887,6 +899,9 @@ async function expandPart(
           return exitOutput;
         }
         throw error;
+      } finally {
+        capture?.close();
+        restoreCaptureOutput();
       }
     }
 

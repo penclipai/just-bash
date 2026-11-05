@@ -55,6 +55,7 @@ import {
 import {
   Interpreter,
   type InterpreterOptions,
+  type InterpreterContext,
   type InterpreterState,
 } from "./interpreter/index.js";
 import type { SharedInputSession, ShellArray } from "./interpreter/types.js";
@@ -87,6 +88,7 @@ import type {
   CommandExecOptions,
   CommandRegistry,
   EnvironmentInfo,
+  ExecResult,
   FeatureCoverageWriter,
   RuntimeCommand,
   TraceCallback,
@@ -681,14 +683,17 @@ export class Bash {
         options,
         executionScope,
         0,
-        options?.signal,
+        executionScope.shellJobs.signal,
         false, // stdinAlreadyAccounted
         false, // defer result logging until cleanup finalizes the result
       );
     } catch (error) {
+      executionScope.shellJobs.cancel(error);
+      await executionScope.shellJobs.joinAll().catch(() => {});
       // Cleanup must not hide the original execution failure.
       try {
         await executionScope.close();
+        executionScope.shellJobs.close();
       } catch {
         // The execution error remains the more useful and compatible failure.
       }
@@ -719,6 +724,7 @@ export class Bash {
       };
     }
     finalResult = await executionScope.automaOutput.finish(finalResult);
+    executionScope.shellJobs.close();
     return commandLine.trim() ? this.logResult(finalResult) : finalResult;
   }
 
@@ -733,15 +739,28 @@ export class Bash {
     callerState?: InterpreterState,
     inputSession?: SharedInputSession,
     inheritedOutput = executionScope.automaOutput,
+    inheritedEndpoints?: InterpreterContext["outputEndpoints"],
+    inheritedFs = this.fs,
+    inheritedSubstitutionDepth = 0,
   ): Promise<BashExecResult> {
     const ownOutput = options?.onOutputBytes
       ? createOutputSink(executionScope, undefined, options.onOutputBytes)
       : undefined;
-    const output = ownOutput ?? inheritedOutput;
+    const branchOutput = ownOutput ? undefined : inheritedOutput?.fork();
+    const output = ownOutput ?? branchOutput;
+    const resultCapture =
+      callerState && !ownOutput
+        ? output?.captureResult(inheritedSubstitutionDepth)
+        : undefined;
     const finishResult = async (
       result: BashExecResult,
     ): Promise<BashExecResult> => {
-      const final = ownOutput ? await ownOutput.finish(result) : result;
+      const captured = resultCapture?.finish(result) as
+        | BashExecResult
+        | undefined;
+      const final = ownOutput
+        ? await ownOutput.finish(captured ?? result)
+        : (captured ?? result);
       return shouldLogResult ? this.logResult(final) : final;
     };
     const combinedAbort = combineAbortSignals(parentSignal, options?.signal);
@@ -795,7 +814,7 @@ export class Bash {
           // PWD not in provided env - use realpath to resolve symlinks
           // This also updates cwd since the shell determines its position from scratch
           try {
-            newPwd = await this.fs.realpath(effectiveCwd);
+            newPwd = await inheritedFs.realpath(effectiveCwd);
             newCwd = newPwd; // Both PWD and cwd should be the physical path
           } catch {
             // Fallback to logical path if realpath fails
@@ -882,7 +901,7 @@ export class Bash {
         callerState && !effectiveOptions.newShell ? callerState : this.state;
 
       const execState: InterpreterState = {
-        ...this.state,
+        ...shellSource,
         // A new bash inherits the process mask too; unlike variables it is
         // not reset by env -i or the newShell environment policy.
         fileCreationMask: (callerState ?? this.state).fileCreationMask,
@@ -892,15 +911,15 @@ export class Bash {
           ? new Map([
               ["BASH_VERSINFO", versionArray(this.environmentInfo?.arch)],
             ])
-          : cloneArrays(this.state.arrays),
+          : cloneArrays(shellSource.arrays),
         cwd: newCwd,
         previousDir:
           effectiveOptions.env?.OLDPWD ??
           (replaceEnv ? "" : this.state.previousDir),
         // Deep copy mutable objects to prevent interference
-        functions: new Map(this.state.functions),
-        localScopes: [...this.state.localScopes],
-        options: { ...this.state.options },
+        functions: new Map(shellSource.functions),
+        localScopes: shellSource.localScopes.map((scope) => new Map(scope)),
+        options: { ...shellSource.options },
         shoptOptions: { ...shellSource.shoptOptions },
         readonlyVars: new Set(shellSource.readonlyVars),
         hashTable: new Map(shellSource.hashTable),
@@ -925,6 +944,27 @@ export class Bash {
         extraArgs: effectiveOptions.args,
       };
 
+      if (effectiveOptions.newShell) {
+        execState.bashPid = executionScope.shellJobs.allocate(
+          (callerState ?? this.state).nextVirtualPid,
+        );
+        execState.virtualPid = execState.bashPid;
+        execState.virtualPpid = callerState?.bashPid ?? this.state.bashPid;
+      } else if (callerState) {
+        execState.bashPid = callerState.bashPid;
+        execState.virtualPid = callerState.virtualPid;
+        execState.virtualPpid = callerState.virtualPpid;
+      }
+      executionScope.shellJobs.registerOwner(
+        execState,
+        callerState && !effectiveOptions.newShell
+          ? (callerState.shellArgs ?? commandLine)
+          : commandLine,
+        effectiveOptions.newShell
+          ? (callerState?.bashPid ?? this.state.bashPid)
+          : (callerState?.shellPpid ?? execState.virtualPpid),
+      );
+
       // Normalize indented multi-line scripts (unless rawScript is true)
       // This allows writing indented bash scripts in template literals
       // BUT we must preserve whitespace inside heredoc content
@@ -938,7 +978,7 @@ export class Bash {
       const defenseBox = this.defenseInDepthConfig
         ? DefenseInDepthBox.getInstance(this.defenseInDepthConfig)
         : null;
-      const defenseHandle = defenseBox?.activate();
+      const defenseHandle = callerState ? undefined : defenseBox?.activate();
 
       try {
         // Run execution inside defense-in-depth context if enabled
@@ -964,32 +1004,40 @@ export class Bash {
 
           // Create interpreter with appropriate state
           const interpreterOptions: InterpreterOptions = {
-            fs: this.fs,
+            fs: inheritedFs,
             commands: this.commands,
             limits: this.limits,
             executionScope,
             output,
+            outputEndpoints: inheritedEndpoints,
+            substitutionDepth: inheritedSubstitutionDepth,
             inputSession,
             environmentInfo: this.environmentInfo,
             virtualFileMetadata: this.virtualFileMetadata,
-            exec: (
-              script,
-              childOptions,
-              childStdinAlreadyAccounted = false,
-              childInputSession,
-            ) =>
-              this.execInScope(
-                script,
-                childOptions,
-                executionScope,
-                execDepth + 1,
-                effectiveOptions.signal,
-                childStdinAlreadyAccounted,
-                true,
-                execState,
-                childInputSession,
-                output,
-              ),
+            execForState:
+              (
+                state,
+                childOutput,
+                childEndpoints,
+                childFs,
+                childSubstitutionDepth,
+              ) =>
+              (script, childOptions, accounted, childInput) =>
+                this.execInScope(
+                  script,
+                  childOptions,
+                  executionScope,
+                  execDepth + 1,
+                  state.signal,
+                  accounted,
+                  true,
+                  state,
+                  childInput,
+                  childOutput,
+                  childEndpoints,
+                  childFs,
+                  childSubstitutionDepth,
+                ),
             fetch: this.secureFetch,
             sleep: this.sleepFn,
             trace: this.traceFn,
@@ -1000,7 +1048,19 @@ export class Bash {
           };
 
           const interpreter = new Interpreter(interpreterOptions, execState);
-          const result = await interpreter.executeScript(ast);
+          let result: ExecResult;
+          try {
+            result = await interpreter.executeScript(ast);
+            if (!callerState) await executionScope.shellJobs.joinAll();
+            else if (effectiveOptions.newShell)
+              await executionScope.shellJobs.wait(execState.bashPid);
+          } catch (error) {
+            if (!callerState) {
+              executionScope.shellJobs.cancel(error);
+              await executionScope.shellJobs.joinAll().catch(() => {});
+            }
+            throw error;
+          }
           // Interpreter always sets env, assert it for type safety
           const execResult = result as BashExecResult;
           if (metadata) {
@@ -1137,6 +1197,8 @@ export class Bash {
       }
       throw error;
     } finally {
+      resultCapture?.close();
+      branchOutput?.release();
       combinedAbort.cleanup();
     }
   }

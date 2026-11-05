@@ -1,3 +1,11 @@
+import { shareFileSystemIdentity } from "../fs/identity.js";
+import {
+  type OutputWriteProvenance,
+  registerOutputFileWriter,
+  writeOutputFile,
+} from "../fs/output-write.js";
+import { bindShellFileSystem, rebindShellFileSystem } from "./umask-fs.js";
+import { allocateShellPid } from "./shell-jobs.js";
 import type { ResourceLease } from "../execution-scope.js";
 import { setFdEntry } from "./fd-table.js";
 import { beginIsolatedShellState } from "./state-transaction.js";
@@ -202,10 +210,13 @@ function mountBackingFs(ctx: InterpreterContext): void {
       (entry) => entry.path === `${PROC_SUB_DIR}${relativePath}`,
     ),
   );
-  ctx.fs = new MountableFs({
-    base: ctx.fs,
-    mounts: [{ mountPoint: PROC_SUB_DIR, filesystem: backing }],
-  });
+  const base = ctx.fs;
+  const mounts = [{ mountPoint: PROC_SUB_DIR, filesystem: backing }];
+  ctx.fs = bindShellFileSystem(
+    shareFileSystemIdentity(new MountableFs({ base, mounts }), base),
+    (state) =>
+      new MountableFs({ base: rebindShellFileSystem(base, state), mounts }),
+  );
   ctx.state.processSubstitutionFsMounted = true;
 }
 
@@ -255,7 +266,6 @@ export interface ProcessSubstitutionEntry {
   automaCaptureAccounting?: {
     path: string;
     bytes: number;
-    routing: number;
     revision: number;
     paths: Set<string>;
   };
@@ -295,7 +305,36 @@ function captureFileSystem(
     }
     return false;
   };
-  return new _Proxy(fs, {
+  const write = async (
+    key: "writeFile" | "appendFile",
+    path: string,
+    content: FileContent,
+    options: WriteFileOptions | BufferEncoding | undefined,
+    routed: boolean,
+    provenance?: OutputWriteProvenance,
+  ) => {
+    const affected = await captured(path);
+    const bytes = capture.bytes;
+    const revision = affected ? ++capture.revision : capture.revision;
+    if (affected && key === "writeFile") capture.bytes = 0;
+    if (routed)
+      await writeOutputFile(fs, key, path, content, options, provenance);
+    else await fs[key](path, content, options);
+    const unchanged = affected && (await unchangedAlias(path, revision, bytes));
+    if (affected && !unchanged && routed) {
+      const encoding =
+        typeof options === "string" ? options : options?.encoding;
+      capture.bytes += provenance
+        ? provenance.writtenBytes +
+          (bytes === provenance.previousSize ? provenance.retainedBytes : 0)
+        : typeof content === "string"
+          ? encoding === "binary" || encoding === "latin1"
+            ? content.length
+            : utf8ByteLength(content)
+          : content.byteLength;
+    }
+  };
+  const facade = new _Proxy(fs, {
     get(target, key) {
       if (key === "constructor" || key === "prototype" || key === "__proto__")
         throw new Error("Unsafe process capture filesystem property");
@@ -303,32 +342,12 @@ function captureFileSystem(
       // fixed host filesystem capability, never a user-keyed data object.
       const operation = Reflect.get(target, key, target);
       if (typeof operation !== "function") return operation;
-      if (key === "writeFile" || key === "appendFile") {
-        return async (
+      if (key === "writeFile" || key === "appendFile")
+        return (
           path: string,
           content: FileContent,
           options?: WriteFileOptions | BufferEncoding,
-        ) => {
-          const routed = capture.routing > 0;
-          const affected = await captured(path);
-          const bytes = capture.bytes;
-          const revision = affected ? ++capture.revision : capture.revision;
-          if (affected && key === "writeFile") capture.bytes = 0;
-          await operation.call(target, path, content, options);
-          const unchanged =
-            affected && (await unchangedAlias(path, revision, bytes));
-          if (affected && !unchanged && routed) {
-            const encoding =
-              typeof options === "string" ? options : options?.encoding;
-            capture.bytes +=
-              typeof content === "string"
-                ? encoding === "binary" || encoding === "latin1"
-                  ? content.length
-                  : utf8ByteLength(content)
-                : content.byteLength;
-          }
-        };
-      }
+        ) => write(key, path, content, options, false);
       if (["cp", "mv", "link", "symlink", "rm"].includes(String(key))) {
         return async (...args: unknown[]) => {
           const destination = String(args[key === "rm" ? 0 : 1]);
@@ -346,6 +365,13 @@ function captureFileSystem(
       return operation.bind(target);
     },
   });
+  shareFileSystemIdentity(facade, fs);
+  registerOutputFileWriter(facade, (key, path, content, options, provenance) =>
+    write(key, path, content, options, true, provenance),
+  );
+  return bindShellFileSystem(facade, (state) =>
+    captureFileSystem(rebindShellFileSystem(fs, state), capture),
+  );
 }
 
 function liveEntries(ctx: InterpreterContext): ProcessSubstitutionEntry[] {
@@ -381,6 +407,7 @@ async function runBody(
   const savedArrays = cloneArrays(ctx.state.arrays);
   const savedCwd = ctx.state.cwd;
   const savedBashPid = ctx.state.bashPid;
+  const savedShellPpid = ctx.state.shellPpid;
   const savedSuppressVerbose = ctx.state.suppressVerbose;
   const savedGroupStdin = ctx.state.groupStdin;
   const savedExitCode = ctx.state.lastExitCode;
@@ -388,17 +415,21 @@ async function runBody(
   const savedSubstitutionExitCode = ctx.state.lastSubstitutionExitCode;
 
   ctx.substitutionDepth = currentDepth + 1;
-  ctx.state.bashPid = ctx.state.nextVirtualPid++;
+  ctx.state.bashPid = allocateShellPid(ctx);
   ctx.state.suppressVerbose = true;
   if (stdin !== undefined) ctx.state.groupStdin = stdin;
 
   let result: ExecResult;
+  const capture = ctx.output?.captureResult(ctx.substitutionDepth);
+  const savedOutputEndpoints = ctx.outputEndpoints;
+  ctx.outputEndpoints = { ...savedOutputEndpoints, stdout: undefined };
   try {
-    result = await automaTrapChild(
+    const executed = await automaTrapChild(
       ctx,
       () => ctx.executeScript(body),
       "process",
     );
+    result = capture?.finish(executed) ?? executed;
   } catch (error) {
     // Safety limits always propagate.
     if (error instanceof ExecutionLimitError) throw error;
@@ -415,11 +446,14 @@ async function runBody(
     }
     throw error;
   } finally {
+    capture?.close();
+    ctx.outputEndpoints = savedOutputEndpoints;
     ctx.substitutionDepth = savedDepth;
     ctx.state.env = savedEnv;
     ctx.state.arrays = savedArrays;
     ctx.state.cwd = savedCwd;
     ctx.state.bashPid = savedBashPid;
+    ctx.state.shellPpid = savedShellPpid;
     ctx.state.suppressVerbose = savedSuppressVerbose;
     ctx.state.groupStdin = savedGroupStdin;
     // The body's status is never the shell's `$?` (bash forks it away), and
@@ -454,7 +488,6 @@ async function captureProcessBytes(
   const accounting = {
     path,
     bytes: 0,
-    routing: 0,
     revision: 0,
     paths: new Set([path]),
   };

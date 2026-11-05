@@ -10,6 +10,8 @@
  * All limits are optional - undefined values use defaults.
  */
 export interface ExecutionLimits {
+  /** Maximum active or unconsumed background jobs in one invocation tree. */
+  maxBackgroundJobs?: number;
   /** Maximum shell source bytes accepted before parsing (normal default: 64 MiB) */
   maxSourceBytes?: number;
 
@@ -161,6 +163,7 @@ export const DEFAULT_MAX_SOURCE_BYTES: number = 64 * 1024 * 1024;
  * profile for tighter untrusted-workload policy.
  */
 const DEFAULT_LIMITS: Required<ExecutionLimits> = {
+  maxBackgroundJobs: 32,
   maxSourceBytes: DEFAULT_MAX_SOURCE_BYTES,
   maxExecDepth: 64,
   maxCallDepth: 100,
@@ -277,6 +280,8 @@ export function resolveLimits(
     return { ...defaults };
   }
   const resolved: Required<ExecutionLimits> = {
+    maxBackgroundJobs:
+      userLimits.maxBackgroundJobs ?? defaults.maxBackgroundJobs,
     maxSourceBytes: userLimits.maxSourceBytes ?? defaults.maxSourceBytes,
     maxExecDepth: userLimits.maxExecDepth ?? defaults.maxExecDepth,
     maxCallDepth: userLimits.maxCallDepth ?? defaults.maxCallDepth,

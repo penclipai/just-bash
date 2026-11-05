@@ -193,7 +193,21 @@ export interface VirtualFileMetadata {
   readonly allocationBlockSize?: number;
 }
 
+export interface ShellJobInfo {
+  readonly pid: number;
+  readonly ppid: number;
+  readonly stat: "running" | "done";
+  readonly args: string;
+}
+
+export interface ShellJobSnapshot {
+  readonly shell: ShellJobInfo;
+  readonly jobs: readonly ShellJobInfo[];
+}
+
 export interface RuntimeCommandContext {
+  /** Immutable current shell and directly owned, unconsumed tasks. */
+  getShellJobSnapshot?(): ShellJobSnapshot;
   /**
    * Write text or a Latin1-shaped byte string to stdout or stderr. Await each
    * write for ordered delivery. The shell retains the original bytes for

@@ -1,3 +1,4 @@
+import { ShellJobs } from "./interpreter/shell-jobs.js";
 import { utf8ByteLength } from "./encoding.js";
 import { accountOutputSegments } from "./execution-output.js";
 import {
@@ -50,6 +51,7 @@ const OUTPUT_RELEASE_AUTHORITY = Object.freeze(Object.create(null) as object);
  * cannot accidentally be refreshed by starting a child interpreter.
  */
 export class ExecutionScope {
+  readonly shellJobs: ShellJobs;
   /** Automa: scope-local terminal output, never ambient state. */
   automaOutput?: ReturnType<typeof createOutputSink>;
   private commandCount = 0;
@@ -82,7 +84,9 @@ export class ExecutionScope {
   constructor(
     private readonly limits: Required<ExecutionLimits>,
     readonly signal: AbortSignal | undefined = undefined,
-  ) {}
+  ) {
+    this.shellJobs = new ShellJobs(this, limits.maxBackgroundJobs);
+  }
 
   private fail(error: ExecutionLimitError | ExecutionAbortedError): never {
     this.poisoned ??= error;

@@ -1,3 +1,5 @@
+import { resolveEndpointRoute } from "./output-endpoints.js";
+import { launchBackgroundStatement } from "./background-statement.js";
 import { outputSegments } from "../execution-output.js";
 import { automaTrapEligible, automaTrapRun, automaTrapShell } from "./traps.js";
 
@@ -130,20 +132,30 @@ function unsupportedCommandNode(node: never): never {
 
 export type { InterpreterContext, InterpreterState } from "./types.js";
 
+type NestedExec = (
+  script: string,
+  options?: InterpreterExecOptions,
+  stdinAlreadyAccounted?: boolean,
+  inputSession?: SharedInputSession,
+) => Promise<ExecResult>;
+
 export interface InterpreterOptions {
+  substitutionDepth?: number;
+  execForState: (
+    state: InterpreterState,
+    output: InterpreterContext["output"],
+    endpoints: InterpreterContext["outputEndpoints"],
+    fs: IFileSystem,
+    substitutionDepth?: number,
+  ) => NestedExec;
   output?: InterpreterContext["output"];
+  outputEndpoints?: InterpreterContext["outputEndpoints"];
   environmentInfo?: InterpreterContext["environmentInfo"];
   virtualFileMetadata?: InterpreterContext["virtualFileMetadata"];
   fs: IFileSystem;
   commands: CommandRegistry;
   limits: Required<ExecutionLimits>;
   executionScope: ExecutionScope;
-  exec: (
-    script: string,
-    options?: InterpreterExecOptions,
-    stdinAlreadyAccounted?: boolean,
-    inputSession?: SharedInputSession,
-  ) => Promise<ExecResult>;
   inputSession?: SharedInputSession;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;
@@ -170,12 +182,17 @@ export interface InterpreterOptions {
 export class Interpreter {
   private ctx: InterpreterContext;
 
-  constructor(options: InterpreterOptions, state: InterpreterState) {
+  constructor(
+    private options: InterpreterOptions,
+    state: InterpreterState,
+  ) {
     this.ctx = {
       output: options.output ?? options.executionScope.automaOutput,
+      outputEndpoints: options.outputEndpoints,
       environmentInfo: options.environmentInfo,
       virtualFileMetadata: options.virtualFileMetadata,
       state,
+      substitutionDepth: options.substitutionDepth,
       fs: withUmaskFileSystem(
         options.fs,
         state,
@@ -186,7 +203,14 @@ export class Interpreter {
       commands: options.commands,
       limits: options.limits,
       executionScope: options.executionScope,
-      execFn: options.exec,
+      execFn: (...args) =>
+        this.options.execForState(
+          state,
+          this.ctx.output,
+          this.ctx.outputEndpoints,
+          this.ctx.fs,
+          this.ctx.substitutionDepth,
+        )(...args),
       executeScript: this.executeScript.bind(this),
       executeStatement: this.executeStatement.bind(this),
       executeCommand: this.executeCommand.bind(this),
@@ -460,6 +484,25 @@ export class Interpreter {
     if (this.ctx.state.options.noexec) {
       return OK;
     }
+
+    if (node.background)
+      return launchBackgroundStatement(
+        this.ctx,
+        node,
+        (state, output) =>
+          // @banned-pattern-ignore: child shares this invocation executionScope and capabilities.
+          new Interpreter(
+            {
+              ...this.options,
+              substitutionDepth: this.ctx.substitutionDepth,
+              output,
+              fs: this.ctx.fs,
+              outputEndpoints: this.ctx.outputEndpoints,
+              inputSession: undefined,
+            },
+            state,
+          ),
+      );
 
     // Reset errexitSafe at the start of each statement
     // It will be set by inner compound command executions if needed
@@ -993,7 +1036,16 @@ export class Interpreter {
       }
       return preparedRedirectionError(preparedRedirections);
     }
-    this.ctx.output?.setCommandRoutes(preparedRedirections.outputRoutes);
+    this.ctx.output?.setCommandRoutes({
+      stdout: resolveEndpointRoute(
+        this.ctx,
+        preparedRedirections.outputRoutes.stdout,
+      ),
+      stderr: resolveEndpointRoute(
+        this.ctx,
+        preparedRedirections.outputRoutes.stderr,
+      ),
+    });
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
     // Builtins (eval, functions, wrappers) treat any fd-0 route as ownership,
     // including one a persistent `exec <` set up earlier. External commands

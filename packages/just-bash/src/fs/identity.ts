@@ -22,3 +22,12 @@ export function getFileSystemIdentity(fs: IFileSystem): object {
 export function isFileSystemIdentity(value: object): boolean {
   return identityTokens.has(value);
 }
+
+/** Transient interpreter facades retain their original backend coordination key. */
+export function shareFileSystemIdentity<T extends IFileSystem>(
+  facade: T,
+  source: IFileSystem,
+): T {
+  identities.set(facade, getFileSystemIdentity(source));
+  return facade;
+}

@@ -1,3 +1,8 @@
+import { shareFileSystemIdentity } from "../fs/identity.js";
+import {
+  registerOutputFileWriter,
+  writeOutputFile,
+} from "../fs/output-write.js";
 import type { ExecutionScope } from "../execution-scope.js";
 import { createExclusiveOn } from "../fs/create-exclusive.js";
 import type { IFileSystem } from "../fs/interface.js";
@@ -7,6 +12,26 @@ import type { ExecutionLimits } from "../limits.js";
 import { getErrorCode } from "./helpers/errors.js";
 import type { InterpreterState } from "./types.js";
 
+const bindings = new WeakMap<
+  IFileSystem,
+  (state: InterpreterState) => IFileSystem
+>();
+
+/** Trusted transient facades preserve their backend while rebinding shell policy. */
+export function bindShellFileSystem<T extends IFileSystem>(
+  fs: T,
+  bind: (state: InterpreterState) => IFileSystem,
+): T {
+  bindings.set(fs, bind);
+  return fs;
+}
+
+export function rebindShellFileSystem(
+  fs: IFileSystem,
+  state: InterpreterState,
+): IFileSystem {
+  return bindings.get(fs)?.(state) ?? fs;
+}
 /**
  * A shell-local creation policy, shared by redirections and command capabilities.
  * Default 0022 delegates unchanged: native directory backends need no POSIX mode
@@ -20,6 +45,8 @@ export function withUmaskFileSystem(
   limits: Required<ExecutionLimits>,
   scope: ExecutionScope,
 ): IFileSystem {
+  const inherited = bindings.get(fs);
+  if (inherited) return inherited(state);
   const mask = () => state.fileCreationMask ?? 0o022;
   const budget = () =>
     new FileTraversalBudget({
@@ -141,5 +168,16 @@ export function withUmaskFileSystem(
   if (fs.readdirWithFileTypes)
     facade.readdirWithFileTypes = fs.readdirWithFileTypes.bind(fs);
   if (fs.createExclusive) facade.createExclusive = fs.createExclusive.bind(fs);
-  return facade;
+  shareFileSystemIdentity(facade, fs);
+  registerOutputFileWriter(
+    facade,
+    async (kind, path, content, options, provenance) => {
+      const target = await prepareFile(path);
+      scope.throwIfAborted("umask output");
+      await writeOutputFile(fs, kind, target, content, options, provenance);
+    },
+  );
+  return bindShellFileSystem(facade, (next) =>
+    withUmaskFileSystem(fs, next, limits, scope),
+  );
 }

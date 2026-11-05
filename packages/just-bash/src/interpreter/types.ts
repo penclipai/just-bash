@@ -1,3 +1,4 @@
+import type { OutputEndpoints } from "./output-endpoints.js";
 /**
  * Interpreter Types
  */
@@ -290,6 +291,8 @@ export interface ControlFlowState {
  * Powers special variables like $$, $BASHPID, $!, and $SECONDS.
  */
 export interface ProcessState {
+  shellArgs?: string;
+  shellPpid?: number;
   /** Interpreter-local file creation mask; never reads or mutates host umask. */
   fileCreationMask?: number;
   /** Total commands executed (for execution limits) */
@@ -493,6 +496,7 @@ export interface ShellArray {
 }
 
 export interface InterpreterContext {
+  outputEndpoints?: OutputEndpoints;
   /** Output routing belongs to an invocation; budgets remain shared. */
   output?: ReturnType<typeof createOutputSink>;
   environmentInfo?: EnvironmentInfo;

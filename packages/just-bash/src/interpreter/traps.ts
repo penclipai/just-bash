@@ -235,7 +235,10 @@ export async function automaTrapChild(
   updateShellopts(ctx);
   updateBashopts(ctx);
   try {
-    return await automaTrapShell(ctx, run);
+    let result = await automaTrapShell(ctx, run);
+    if (kind !== "pipeline")
+      await ctx.executionScope.shellJobs.wait(state.bashPid);
+    return result;
   } finally {
     Object.assign(state, saved);
   }

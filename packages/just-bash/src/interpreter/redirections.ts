@@ -1,3 +1,9 @@
+import { writeOutputFile } from "../fs/output-write.js";
+import {
+  bindOutputEndpoints,
+  resolveEndpointRoute,
+  serializeOutputWrite,
+} from "./output-endpoints.js";
 import { outputSegments, outputSize } from "../execution-output.js";
 import type { OutputSegment } from "../types.js";
 /**
@@ -248,8 +254,10 @@ async function openOutputEntry(
     return { entry: { kind: "dup-out", sourceFd: 2 } };
   }
   try {
-    if (append) await ctx.fs.appendFile(filePath, "", "binary");
-    else await ctx.fs.writeFile(filePath, "", "binary");
+    await serializeOutputWrite(ctx.executionScope, async () => {
+      if (append) await ctx.fs.appendFile(filePath, "", "binary");
+      else await ctx.fs.writeFile(filePath, "", "binary");
+    });
   } catch (error) {
     const code = getErrorCode(error);
     const reason =
@@ -1248,15 +1256,17 @@ export async function withPreparedRedirections(
       ctx.state.groupStdin = prepared.stdin;
       ctx.state.groupStdinSourceFd = prepared.stdinSourceFd;
     }
+    const inheritedOutput = ctx.outputEndpoints;
+    const endpoints = bindOutputEndpoints(ctx, prepared.outputRoutes);
+    ctx.outputEndpoints = endpoints;
     try {
       const result = await run(prepared);
-      return await applyRedirections(
-        ctx,
-        result,
-        redirections.length > 0,
-        prepared.outputRoutes,
-      );
+      return await applyRedirections(ctx, result, redirections.length > 0, {
+        stdout: { kind: "live-stdout" },
+        stderr: { kind: "live-stderr" },
+      });
     } finally {
+      ctx.outputEndpoints = inheritedOutput;
       if (prepared.stdin !== undefined) {
         ctx.state.groupStdin = savedGroupStdin;
         ctx.state.groupStdinSourceFd = savedGroupStdinSourceFd;
@@ -1285,13 +1295,17 @@ export async function applyRedirections(
   );
   const captureFor = async (sink: RedirectSink) => {
     const path =
-      sink.kind === "file"
-        ? sink.path
-        : sink.kind === "descriptor" &&
-            (sink.source.entry.kind === "output" ||
-              sink.source.entry.kind === "readwrite")
-          ? sink.source.entry.path
-          : undefined;
+      sink.kind === "live-stdout"
+        ? ctx.outputEndpoints?.stdout?.path
+        : sink.kind === "live-stderr"
+          ? ctx.outputEndpoints?.stderr?.path
+          : sink.kind === "file"
+            ? sink.path
+            : sink.kind === "descriptor" &&
+                (sink.source.entry.kind === "output" ||
+                  sink.source.entry.kind === "readwrite")
+              ? sink.source.entry.path
+              : undefined;
     if (!path) return undefined;
     const resolved = await ctx.fs.realpath(path).catch(() => path);
     return captureEntries?.find(
@@ -1344,12 +1358,16 @@ export async function applyRedirections(
     let pendingStderr = stderr;
     stdout = "";
     stderr = "";
-    if (fd1Sink.kind === "invalid-output" && pendingStdout !== "") {
+    const closed = (sink: RedirectSink) =>
+      sink.kind === "invalid-output" ||
+      (sink.kind === "live-stdout" && ctx.outputEndpoints?.stdout?.closed) ||
+      (sink.kind === "live-stderr" && ctx.outputEndpoints?.stderr?.closed);
+    if (closed(fd1Sink) && pendingStdout !== "") {
       pendingStdout = "";
       pendingStderr += `${omitShellPrefix ? "" : "bash: "}${writeErrorCommand}: write error: Bad file descriptor\n`;
       exitCode = 1;
     }
-    if (fd2Sink.kind === "invalid-output" && pendingStderr !== "") {
+    if (closed(fd2Sink) && pendingStderr !== "") {
       pendingStderr = "";
       if (exitCode === 0) exitCode = 1;
     }
@@ -1359,9 +1377,21 @@ export async function applyRedirections(
       encoding: "binary" | "utf8",
     ) => {
       if (sink.append) {
-        await ctx.fs.appendFile(sink.path, content, encoding);
+        await writeOutputFile(
+          ctx.fs,
+          "appendFile",
+          sink.path,
+          content,
+          encoding,
+        );
       } else {
-        await ctx.fs.writeFile(sink.path, content, encoding);
+        await writeOutputFile(
+          ctx.fs,
+          "writeFile",
+          sink.path,
+          content,
+          encoding,
+        );
       }
     };
     // Automa: route each original text/byte segment through the resolved fd sinks.
@@ -1374,31 +1404,47 @@ export async function applyRedirections(
       const sink = stream === "stdout" ? fd1Sink : fd2Sink;
       const encoding = kind === "bytes" ? "binary" : "utf8";
       if (!content) continue;
-      const capture = captures?.[stream];
-      if (capture) capture.routing++;
-      try {
+      {
         switch (sink.kind) {
           case "live-stdout":
-            stdout += content;
-            routed.push(["stdout", content, kind]);
+          case "live-stderr": {
+            const source = sink.kind === "live-stdout" ? "stdout" : "stderr";
+            const endpoint = ctx.outputEndpoints?.[source];
+            if (endpoint && !endpoint.stream)
+              await endpoint.write(content, kind ?? "text");
+            else {
+              const target = endpoint?.stream ?? source;
+              if (target === "stdout") stdout += content;
+              else stderr += content;
+              routed.push([target, content, kind]);
+            }
             break;
-          case "live-stderr":
-            stderr += content;
-            routed.push(["stderr", content, kind]);
-            break;
+          }
           case "file":
-            if (written.has(sink))
-              await ctx.fs.appendFile(sink.path, content, encoding);
-            else await deliverToFile(sink, content, encoding);
+            await serializeOutputWrite(ctx.executionScope, async () => {
+              if (written.has(sink))
+                await writeOutputFile(
+                  ctx.fs,
+                  "appendFile",
+                  sink.path,
+                  content,
+                  encoding,
+                );
+              else await deliverToFile(sink, content, encoding);
+            });
             written.add(sink);
             break;
           case "descriptor": {
-            const updatedEntry = await writeFdEntry(
-              ctx,
-              sink.source.entry,
-              sink.source.descriptors,
-              content,
-              encoding,
+            const updatedEntry = await serializeOutputWrite(
+              ctx.executionScope,
+              () =>
+                writeFdEntry(
+                  ctx,
+                  sink.source.entry,
+                  sink.source.descriptors,
+                  content,
+                  encoding,
+                ),
             );
             if (updatedEntry) sink.source.entry = updatedEntry;
             break;
@@ -1407,14 +1453,16 @@ export async function applyRedirections(
           case "discard":
             break;
         }
-      } finally {
-        if (capture) capture.routing--;
       }
     }
   }
 
   const finalResult = makeResult(stdout, stderr, exitCode);
-  ctx.output?.route(result, fd1Sink, fd2Sink);
+  ctx.output?.route(
+    result,
+    resolveEndpointRoute(ctx, fd1Sink),
+    resolveEndpointRoute(ctx, fd2Sink),
+  );
   finalResult.internalOutputSegments = routed;
   // Preserve the upstream's stdout shape through the redirection layer so
   // the next stage (pipeline glue, output boundary) can tell bytes-shaped
@@ -1431,6 +1479,7 @@ export async function applyRedirections(
   }
   const hasOutputRedirection =
     hasRedirections ||
+    Boolean(ctx.outputEndpoints?.stdout || ctx.outputEndpoints?.stderr) ||
     ctx.state.fileDescriptors?.has(1) === true ||
     ctx.state.fileDescriptors?.has(2) === true;
   if (hasOutputRedirection) {

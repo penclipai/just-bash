@@ -433,3 +433,24 @@ The browser host selects domain/path/secure/expiry and isolates each request
 in its own tab. It neither reads nor updates ambient cookies. Existing `-c`
 exports the actual browser jar for the final URL, including with `-b`; this
 is not a private curl session jar. Manual Cookie headers remain unsupported.
+
+## Invocation-local background jobs
+
+- Execute the complete asynchronous statement in a cloned interpreter namespace.
+  Jobs share the original filesystem, accounting, PID allocator and cancellation
+  tree. Background stdin defaults to EOF; explicit child input redirects work.
+- `$!` identifies the new interpreter job. `wait` accepts decimal PIDs or waits
+  for all directly owned jobs; unknown/foreign PIDs return 127. `%N` and wait
+  options fail explicitly. A tree retains at most 32 active/unconsumed jobs by
+  default; wait releases their state, retaining 32 compact completion results.
+- `getShellJobSnapshot()` gives commands a frozen snapshot of the current shell
+  and its directly owned jobs (`pid`, `ppid`, `running|done`, `args`). These are
+  interpreter facts, not operating-system or Node guest process identities.
+- Each interpreter has its own routing stack. Shared output endpoints retain
+  independent-open cursors, duplicate aliases and serialized writes after the
+  parent restores a redirection. Pipe/capture EOF waits for child writers.
+  Extra inherited descriptors and read/write descriptions fail before launch.
+- Automa deliberately joins all jobs before normal invocation close, including
+  ordinary failure and `exit`, preserving the foreground status. Stop, resource
+  failure and unrecoverable errors revoke and drain the tree before close.
+  There are no persistent daemons or host signal/process-table capabilities.

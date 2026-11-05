@@ -1,3 +1,5 @@
+import { bindPipelineOutput } from "../pipeline-redirections.js";
+import { allocateShellPid } from "../shell-jobs.js";
 import { commandSubstitutionText } from "../../execution-output.js";
 import { automaTrapChild } from "../traps.js";
 /**
@@ -120,19 +122,26 @@ async function executeCommandSubstitutionFromString(
 
   // Execute in subshell-like context
   const savedBashPid = ctx.state.bashPid;
-  ctx.state.bashPid = ctx.state.nextVirtualPid++;
+  const savedBackgroundPid = ctx.state.lastBackgroundPid;
+  const savedShellPpid = ctx.state.shellPpid;
+  const savedDepth = ctx.substitutionDepth;
+  ctx.substitutionDepth = (savedDepth ?? 0) + 1;
+  ctx.state.bashPid = allocateShellPid(ctx);
   const savedEnv = new Map(ctx.state.env);
   const savedArrays = cloneArrays(ctx.state.arrays);
   const savedCwd = ctx.state.cwd;
   const savedSuppressVerbose = ctx.state.suppressVerbose;
   ctx.state.suppressVerbose = true;
 
+  const capture = ctx.output?.captureResult(ctx.substitutionDepth);
+  const restoreCaptureOutput = bindPipelineOutput(ctx, false);
   try {
-    const result = await automaTrapChild(
+    const executed = await automaTrapChild(
       ctx,
       () => ctx.executeScript(ast),
       "command",
     );
+    const result = capture?.finish(executed) ?? executed;
     // Restore environment but preserve exit code
     const exitCode = result.exitCode;
     ctx.state.env = savedEnv;
@@ -145,12 +154,14 @@ async function executeCommandSubstitutionFromString(
         (ctx.state.expansionStderr || "") + result.stderr;
     }
     ctx.state.bashPid = savedBashPid;
+    ctx.state.lastBackgroundPid = savedBackgroundPid;
     return commandSubstitutionText(result).replace(/\n+$/, "");
   } catch (error) {
     ctx.state.env = savedEnv;
     ctx.state.arrays = savedArrays;
     ctx.state.cwd = savedCwd;
     ctx.state.bashPid = savedBashPid;
+    ctx.state.lastBackgroundPid = savedBackgroundPid;
     ctx.state.suppressVerbose = savedSuppressVerbose;
     if (error instanceof ExecutionLimitError) {
       throw error;
@@ -160,6 +171,11 @@ async function executeCommandSubstitutionFromString(
       return commandSubstitutionText(error).replace(/\n+$/, "") ?? "";
     }
     return "";
+  } finally {
+    capture?.close();
+    restoreCaptureOutput();
+    ctx.substitutionDepth = savedDepth;
+    ctx.state.shellPpid = savedShellPpid;
   }
 }
 

@@ -71,6 +71,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     cwd: state.cwd,
     previousDir: state.previousDir,
     lastExitCode: state.lastExitCode,
+    lastBackgroundPid: state.lastBackgroundPid,
     lastArg: state.lastArg,
     currentLine: state.currentLine,
     options: state.options,
@@ -122,6 +123,8 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     groupStdin: state.groupStdin,
     groupStdinSourceFd: state.groupStdinSourceFd,
     bashPid: state.bashPid,
+    shellPpid: state.shellPpid,
+    shellArgs: state.shellArgs,
     expansionExitCode: state.expansionExitCode,
     expansionStderr: state.expansionStderr,
   };
