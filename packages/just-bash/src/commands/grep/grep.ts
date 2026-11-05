@@ -13,6 +13,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { fsErrorMessage } from "../../utils/fs-error.js";
 import { matchGlob } from "../../utils/glob.js";
 import { readStdin } from "../../utils/read-stdin.js";
 import { showHelp, unknownOption } from "../help.js";
@@ -653,6 +654,13 @@ export const grepCommand: RuntimeCommand = {
 
     // Process files in parallel batches for better performance
     const BATCH_SIZE = 50;
+    // -q/-l/-L only need to know whether a file matches: stop each file at
+    // its first match, and once -q has a match skip the rest of the batch.
+    const fileMaxCount =
+      (quietMode || filesWithMatches || filesWithoutMatch) && !countOnly
+        ? 1
+        : maxCount;
+    let quietMatched = false;
     for (let i = 0; i < filesToSearch.length; i += BATCH_SIZE) {
       const batch = filesToSearch.slice(i, i + BATCH_SIZE);
 
@@ -684,6 +692,7 @@ export const grepCommand: RuntimeCommand = {
             }
           }
 
+          if (quietMatched) return null;
           let inputLease: ResourceLease | undefined;
           try {
             let content: string;
@@ -773,7 +782,7 @@ export const grepCommand: RuntimeCommand = {
               onlyMatching,
               beforeContext,
               afterContext,
-              maxCount,
+              maxCount: fileMaxCount,
               matchBeyondMaxCount: false,
               kResetGroup,
               preFilter,
@@ -781,11 +790,12 @@ export const grepCommand: RuntimeCommand = {
               maxMatches: ctx.limits.maxArrayElements,
               signal: ctx.signal,
             });
+            if (quietMode && result.matched) quietMatched = true;
 
             return { file, result };
           } catch (error) {
             rethrowFatalExecutionError(error);
-            return { error: `grep: ${file}: No such file or directory\n` };
+            return { error: `grep: ${file}: ${fsErrorMessage(error)}\n` };
           } finally {
             inputLease?.release();
           }

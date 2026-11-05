@@ -8,6 +8,7 @@ import type {
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { accountFileInput } from "../../utils/file-reader.js";
+import { fsErrorMessage } from "../../utils/fs-error.js";
 import { readStdin } from "../../utils/read-stdin.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -160,7 +161,7 @@ export const catCommand: RuntimeCommand = {
         stream += rawContent;
       } catch (error) {
         rethrowFatalExecutionError(error);
-        stderr += `cat: ${file}: No such file or directory\n`;
+        stderr += `cat: ${file}: ${fsErrorMessage(error)}\n`;
         exitCode = 1;
       }
     }

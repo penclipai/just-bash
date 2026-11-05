@@ -48,7 +48,8 @@ function assertConversionSize(
 
 /** Return UTF-8 byte length without allocating an encoded copy. */
 export function utf8ByteLength(value: string): number {
-  if (typeof Buffer !== "undefined") return Buffer.byteLength(value, "utf8");
+  // Deliberately not Buffer.byteLength: browser Buffer polyfills implement it
+  // by materializing an encoded array, which dominated large sort/uniq pipes.
   let bytes = 0;
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index);
