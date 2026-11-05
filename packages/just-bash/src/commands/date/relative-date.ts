@@ -1,3 +1,4 @@
+import { nullPrototype } from "../query-engine/safe-object.js";
 /**
  * GNU-style relative items for `date -d` (parse_datetime subset):
  * `[+-]N unit`, `N unit ago`, `next|last|this unit`, bare `unit`,
@@ -8,7 +9,7 @@
 
 type UnitKind = "y" | "m" | "d" | "s";
 
-const UNITS: Record<string, [UnitKind, number]> = {
+const UNITS = nullPrototype<Record<string, [UnitKind, number]>>({
   year: ["y", 1],
   month: ["m", 1],
   fortnight: ["d", 14],
@@ -19,9 +20,9 @@ const UNITS: Record<string, [UnitKind, number]> = {
   min: ["s", 60],
   second: ["s", 1],
   sec: ["s", 1],
-};
+});
 
-const WEEKDAYS: Record<string, number> = {
+const WEEKDAYS = nullPrototype<Record<string, number>>({
   sun: 0,
   sunday: 0,
   mon: 1,
@@ -40,9 +41,13 @@ const WEEKDAYS: Record<string, number> = {
   friday: 5,
   sat: 6,
   saturday: 6,
-};
+});
 
-const ORDINALS: Record<string, number> = { last: -1, this: 0, next: 1 };
+const ORDINALS = nullPrototype<Record<string, number>>({
+  last: -1,
+  this: 0,
+  next: 1,
+});
 
 const TIME_ONLY = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
 

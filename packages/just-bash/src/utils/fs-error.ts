@@ -1,9 +1,10 @@
+import { nullPrototype } from "../commands/query-engine/safe-object.js";
 /**
  * strerror-style text for a filesystem error, so commands do not report
  * every failure (EFBIG, EACCES, EIO, ...) as "No such file or directory".
  * Errors without a recognized code keep the historical ENOENT text.
  */
-const MESSAGES: Record<string, string> = {
+const MESSAGES = nullPrototype<Record<string, string>>({
   ENOENT: "No such file or directory",
   EACCES: "Permission denied",
   EPERM: "Operation not permitted",
@@ -16,7 +17,7 @@ const MESSAGES: Record<string, string> = {
   ENOMEM: "Cannot allocate memory",
   EMFILE: "Too many open files",
   ESTALE: "Stale file handle",
-};
+});
 
 export function fsErrorMessage(error: unknown): string {
   const code =
