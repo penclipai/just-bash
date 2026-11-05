@@ -5,14 +5,15 @@ import { readStdin } from "../../utils/read-stdin.js";
 
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import {
+  bytesFromUint8Array,
   encodeUtf8ToBytes,
   latin1FromBytes,
-  readBytesFrom,
 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { unknownOption } from "../help.js";
+import { selectHeadTailBytes } from "./head-tail-bytes.js";
 
 export interface HeadTailOptions {
   lines: number;
@@ -173,10 +174,13 @@ export async function processHeadTailFiles(
           "string_length",
         );
       }
-      // Read the raw bytes (latin1 view) rather than `fs.readFile`'s UTF-8
-      // decode: `-c` byte counts and binary content must round-trip exactly.
-      // Matches the stdin path above and `cat`'s byte-clean behaviour.
-      const content = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
+      // Keep optional byte-string filesystems on their existing read path.
+      // Byte-array filesystems convert only the selected output, after the
+      // complete input has been admitted and charged below.
+      const content =
+        typeof ctx.fs.readFileBytes === "function"
+          ? latin1FromBytes(await ctx.fs.readFileBytes(filePath))
+          : await ctx.fs.readFileBuffer(filePath);
       if (content.length > ctx.limits.maxInputBytes - aggregateInput) {
         throw new ExecutionLimitError(
           `${cmdName}: aggregate input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
@@ -197,7 +201,21 @@ export async function processHeadTailFiles(
         if (filesProcessed > 0) stdout.append("\n");
         stdout.append(latin1FromBytes(encodeUtf8ToBytes(`==> ${file} <==\n`)));
       }
-      stdout.append(contentProcessor(content));
+      stdout.append(
+        typeof content === "string"
+          ? contentProcessor(content)
+          : latin1FromBytes(
+              bytesFromUint8Array(
+                selectHeadTailBytes(
+                  content,
+                  cmdName,
+                  options.lines,
+                  options.bytes,
+                  options.fromLine,
+                ),
+              ),
+            ),
+      );
       filesProcessed++;
     } catch (error) {
       rethrowFatalExecutionError(error);
