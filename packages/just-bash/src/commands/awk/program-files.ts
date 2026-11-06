@@ -2,6 +2,7 @@
 import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { RuntimeCommandContext } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 
 export async function readProgramFiles(
   files: string[],
@@ -23,7 +24,13 @@ export async function readProgramFiles(
   for (const name of files) {
     let text: string;
     if (name === "-") {
-      text = stdinConsumed ? "" : decodeBytesToUtf8(command.stdin);
+      text = stdinConsumed
+        ? ""
+        : decodeBytesToUtf8(
+            await withDefenseContext("program stdin read", () =>
+              readStdin(command),
+            ),
+          );
       stdinConsumed = true;
     } else {
       const path = command.fs.resolvePath(command.cwd, name);

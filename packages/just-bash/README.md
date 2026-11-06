@@ -57,6 +57,11 @@ pipes, redirections, and all shell features. The legacy `CommandContext` remains
 available for standalone context inputs; use `createCommandContext({ fs })` when
 calling a command directly with a fully resolved context.
 
+Custom commands receive complete `ctx.stdin` by default. Set `streamingStdin: true`
+on a command, lazy definition, or `defineCommand` options to start before upstream
+EOF and consume `ctx.byteIO.stdin`, `ctx.readStdinChunk()`, or `ctx.readStdin()`.
+With this opt-in, `ctx.stdin` is only the initial snapshot.
+
 Host-provided commands preserve the legacy trusted default whether supplied to
 the `Bash` constructor, declared through `defineCommand`, loaded lazily, or
 added later with `bash.registerCommand()`. Set `trusted: false` (or use
@@ -136,6 +141,8 @@ All commands support `--help` for usage information.
 ## Ripgrep Compatibility
 
 `rg` supports ripgrep-style search options, including `--line-number --heading --color never`, context with `-C`, file types, globs, per-file match limits, and paths-only output. Use `--` before a pattern that starts with `-`. Heading mode separates files with a blank line and omits the heading for one explicitly named file. Exit codes are 0 for matches, 1 for no matches, and 2 for command/search errors; execution limits remain enforced by the sandbox.
+
+With no explicit path, `rg` searches provided stdin. This includes an empty regular file inherited through a persistent `exec < file` redirection inside a group or subshell; empty input returns exit code 1.
 
 Unlike real ripgrep, `rg` defaults to smart-case matching: lowercase patterns match case-insensitively. Use `-s` for case-sensitive matching or `-i` for case-insensitive matching. All accepted `--color` choices (`never`, `auto`, `always`, `ansi`) emit plain text. `--max-count 0` selects no matches; omitting the option leaves the match count unlimited within execution limits. Run `rg --help` for supported options.
 

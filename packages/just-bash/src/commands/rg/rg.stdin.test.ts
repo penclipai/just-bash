@@ -84,16 +84,15 @@ describe("rg searches stdin when no paths are given", () => {
     });
   }
 
-  it("keeps the documented empty persistent stdin limitation", async () => {
+  it("searches empty stdin inherited from persistent exec", async () => {
     const env = new Bash({
       files: { "/empty.txt": "", "/decoy.txt": "target line\n" },
     });
-    // Generalizing inherited descriptor ownership is outside this patch.
     const result = await env.exec("(exec < /empty.txt; rg target)");
     expect(result).toMatchObject({
-      stdout: "decoy.txt:1:target line\n",
+      stdout: "",
       stderr: "",
-      exitCode: 0,
+      exitCode: 1,
     });
   });
 

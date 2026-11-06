@@ -3,6 +3,7 @@ import { preserveAwkOutput } from "./execution-error.js";
 import { setVariable } from "./interpreter/variables.js";
 import { readProgramFiles } from "./program-files.js";
 import { countCharacters, setupMainInput } from "./records.js";
+import { createAwkStream } from "./stream-input.js";
 /**
  * AWK RuntimeCommand - New AST-based Implementation
  *
@@ -11,7 +12,10 @@ import { countCharacters, setupMainInput } from "./records.js";
 
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
-import { ExecutionLimitError } from "../../interpreter/errors.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
 import {
   assertDefenseContext,
@@ -141,7 +145,12 @@ export const awkCommand2: RuntimeCommand = {
         );
         program = loaded.source;
         files = args.slice(programIdx);
-        if (loaded.stdinConsumed) ctx = { ...ctx, stdin: EMPTY_BYTES };
+        if (loaded.stdinConsumed)
+          ctx = {
+            ...ctx,
+            stdin: EMPTY_BYTES,
+            readStdin: async () => EMPTY_BYTES,
+          };
       } catch (error) {
         rethrowFatalExecutionError(error);
         const message = error instanceof Error ? error.message : String(error);
@@ -246,16 +255,29 @@ export const awkCommand2: RuntimeCommand = {
     );
     // Check if there are END blocks (need to read files to populate NR)
     const hasEndBlocks = ast.rules.some((rule) => rule.pattern?.type === "end");
+    const stream = createAwkStream(
+      ast,
+      runtimeCtx,
+      ctx,
+      files,
+      withDefenseContext,
+    );
 
     // Execute BEGIN blocks
     try {
-      setupMainInput(runtimeCtx, ctx, files, withDefenseContext);
+      if (!stream) setupMainInput(runtimeCtx, ctx, files, withDefenseContext);
       await withDefenseContext("BEGIN execution", () => interp.executeBegin());
+      if (stream)
+        await withDefenseContext("stream output drain", () => stream.drain());
       if (runtimeCtx.shouldExit) {
+        if (stream)
+          await withDefenseContext("stream input close", () => stream.close());
         // exit in BEGIN still runs END blocks (AWK semantics)
         await withDefenseContext("END execution after BEGIN exit", () =>
           interp.executeEnd(),
         );
+        if (stream)
+          await withDefenseContext("stream output drain", () => stream.drain());
         return {
           stdout: interp.getOutput(),
           stderr: "",
@@ -282,11 +304,17 @@ export const awkCommand2: RuntimeCommand = {
         await withDefenseContext("line execution", () =>
           interp.executeLine(record),
         );
+        if (stream)
+          await withDefenseContext("stream output drain", () => stream.drain());
         if (runtimeCtx.shouldExit) break;
       }
 
+      if (stream)
+        await withDefenseContext("stream input close", () => stream.close());
       // Execute END blocks (always run, even after exit - AWK semantics)
       await withDefenseContext("END execution", () => interp.executeEnd());
+      if (stream)
+        await withDefenseContext("stream output drain", () => stream.drain());
 
       // awk emits text; the pipeline handles encoding.
       return {
@@ -295,6 +323,14 @@ export const awkCommand2: RuntimeCommand = {
         exitCode: interp.getExitCode(),
       };
     } catch (e) {
+      try {
+        if (stream)
+          await withDefenseContext("stream input cleanup", () =>
+            stream.close(),
+          );
+      } catch {
+        /* Preserve the primary failure. */
+      }
       if (e instanceof SecurityViolationError) {
         throw e;
       }
@@ -302,6 +338,8 @@ export const awkCommand2: RuntimeCommand = {
         preserveAwkOutput(e, runtimeCtx);
         throw e;
       }
+      rethrowFatalExecutionError(e);
+      if (ctx.signal?.aborted) throw new ExecutionAbortedError();
       // Handle errors during execution
       const msg = e instanceof Error ? e.message : String(e);
       const exitCode = 2;

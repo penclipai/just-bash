@@ -22,6 +22,7 @@ import {
   type RegexMode,
   searchContent,
 } from "../search-engine/index.js";
+import { canStreamGrep, streamGrep } from "./stream-search.js";
 
 /**
  * The name GNU grep prints for the `-` operand. It appears wherever a real
@@ -506,6 +507,43 @@ export const grepCommand: RuntimeCommand = {
       };
     }
 
+    const streaming = canStreamGrep({
+      ctx,
+      operands: files,
+      patterns,
+      patternFiles,
+      fixedStrings,
+      ignoreCase,
+      wholeWord,
+      lineRegexp,
+      onlyMatching,
+      perlRegex,
+      beforeContext,
+      afterContext,
+      countOnly,
+      quietMode,
+      filesWithMatches,
+      filesWithoutMatch,
+    });
+    const stream = (entries: FileEntry[], showFilename: boolean) =>
+      streamGrep(ctx, entries, regex, {
+        invertMatch,
+        showLineNumbers,
+        countOnly,
+        filesWithMatches,
+        filesWithoutMatch,
+        quietMode,
+        recursive,
+        showFilename,
+        maxCount,
+        preFilter,
+        includePatterns,
+        excludePatterns,
+        maxWork: getMatcherWorkLimit(ctx),
+      });
+    if (streaming && files.length === 0)
+      return stream([{ path: "", isStdin: true }], false);
+
     // If no files and stdin is provided (including empty string), read from
     // stdin. grep runs regex over text — decode bytes to UTF-8 so multibyte
     // codepoints match `.` / character classes correctly.
@@ -651,6 +689,7 @@ export const grepCommand: RuntimeCommand = {
     // Determine if we should show filename (after glob expansion)
     const showFilename =
       (filesToSearch.length > 1 || (recursive && hasFileTarget)) && !noFilename;
+    if (streaming) return stream(filesToSearch, showFilename);
 
     // Process files in parallel batches for better performance
     const BATCH_SIZE = 50;

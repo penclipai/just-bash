@@ -1,9 +1,10 @@
 // Automa modifications: patch-awk-records.mjs original interpreter record/capture seams.
 import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
-import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type { RuntimeCommandContext } from "../../types.js";
+import { readStdin } from "../../utils/read-stdin.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
 import type { AwkValue } from "./interpreter/types.js";
 export interface RecordStream {
@@ -124,7 +125,11 @@ export const setupMainInput = (
         const name = operands[index++];
         let text: string;
         if (!files.length || name === "-")
-          text = decodeBytesToUtf8(command.stdin);
+          text = decodeBytesToUtf8(
+            await withDefenseContext("input stdin read", () =>
+              readStdin(command),
+            ),
+          );
         else {
           const full = command.fs.resolvePath(command.cwd, name);
           try {
@@ -144,11 +149,7 @@ export const setupMainInput = (
               command.fs.readFile(full),
             );
           } catch (error) {
-            if (
-              error instanceof ExecutionLimitError ||
-              error instanceof SecurityViolationError
-            )
-              throw error;
+            rethrowFatalExecutionError(error);
             throw new Error(`${name}: No such file or directory`);
           }
         }
