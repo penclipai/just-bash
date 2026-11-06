@@ -9,7 +9,7 @@ export async function executeCommandChild(
   capture: boolean,
   ...args: Parameters<InterpreterContext["execFn"]>
 ): Promise<ExecResult> {
-  if (!capture) return ctx.execFn(...args);
+  if (!capture || args[1]?.inheritOutput === true) return ctx.execFn(...args);
   const output = createOutputSink(ctx.executionScope);
   const endpoints: OutputEndpoints = {
     stdout: { stream: "stdout", write: async () => {} },

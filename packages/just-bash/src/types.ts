@@ -78,6 +78,8 @@ export interface BashExecResult extends ExecResult {
 
 /** Options for exec calls within commands (internal API) */
 export interface CommandExecOptions {
+  /** Forward through the caller's resolved output descriptions without capture. */
+  inheritOutput?: boolean;
   /**
    * Automa private input capability. A pending read is not EOF.
    * The source must remove aborted waiters without consuming later input.
