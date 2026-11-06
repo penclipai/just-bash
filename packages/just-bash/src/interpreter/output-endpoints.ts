@@ -49,6 +49,7 @@ export function serializeOutputWrite<T>(
 export function bindOutputEndpoints(
   ctx: InterpreterContext,
   routes: PreparedRedirections["outputRoutes"],
+  captureLive = false,
 ): OutputEndpoints {
   const bound: OutputEndpoints = Object.create(null);
   const endpoints = new Map<object, OutputEndpoint>();
@@ -60,10 +61,15 @@ export function bindOutputEndpoints(
     }
     if (sink.kind === "live-stdout" || sink.kind === "live-stderr") {
       const target = sink.kind === "live-stdout" ? "stdout" : "stderr";
-      bound[stream] = ctx.outputEndpoints?.[target] ?? {
-        stream: target,
-        write: async () => {},
-      };
+      const inherited = ctx.outputEndpoints?.[target];
+      if (inherited && !inherited.stream) bound[stream] = inherited;
+      else if (captureLive && ctx.output)
+        bound[stream] = ctx.output.captureStream(inherited?.stream ?? target);
+      else
+        bound[stream] = inherited ?? {
+          stream: target,
+          write: async () => {},
+        };
       continue;
     }
     let endpoint = endpoints.get(sink);

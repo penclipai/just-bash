@@ -11,6 +11,7 @@ interface Job {
   stat: "running" | "done";
   result?: ExecResult;
   task: Promise<void>;
+  foreground: boolean;
   lease: ResourceLease;
 }
 
@@ -39,11 +40,16 @@ export class ShellJobs {
     state.shellPpid = ppid;
   }
 
+  canLaunch(count: number): boolean {
+    return count <= this.maximum - this.jobs.size;
+  }
+
   launch(
     state: InterpreterState,
     args: string,
     retainedBytes: number,
     prepare: (pid: number) => () => Promise<ExecResult>,
+    foreground = false,
   ): number {
     this.scope.throwIfAborted("background launch");
     if (this.jobs.size >= this.maximum) {
@@ -68,6 +74,7 @@ export class ShellJobs {
       stat: "running",
       lease,
       task: Promise.resolve(),
+      foreground,
     };
     this.jobs.set(pid, job);
     // Defer effects until the record and the parent's $! have been admitted.
@@ -129,7 +136,8 @@ export class ShellJobs {
     const status = job.result?.exitCode ?? 126;
     this.jobs.delete(job.pid);
     job.lease.release();
-    this.completed.set(job.pid, { owner: job.owner, status });
+    if (!job.foreground)
+      this.completed.set(job.pid, { owner: job.owner, status });
     if (this.completed.size > 32)
       this.completed.delete(this.completed.keys().next().value as number);
     return status;
@@ -139,7 +147,7 @@ export class ShellJobs {
     const selected =
       pids ??
       [...this.jobs.values()]
-        .filter((job) => job.owner === owner)
+        .filter((job) => job.owner === owner && !job.foreground)
         .map((job) => job.pid);
     let status = 0;
     for (const pid of selected) {

@@ -9,10 +9,28 @@ import {
   inheritOutputOrigin,
   mergeOutputOrigins,
   outputOrigin,
+  recordOutputPublication,
 } from "./output-provenance.js";
 import type { ExecResult, OutputSegment } from "./types.js";
 
 describe("output segment identity", () => {
+  it("orders published segments when delayed writers publish", async () => {
+    const delayed: OutputSegment = ["stdout", "late", "text"];
+    const ready: OutputSegment = ["stderr", "first", "text"];
+    const pending: OutputSegment = ["stderr", "tail", "text"];
+    for (const part of [delayed, ready, pending]) outputOrigin(part);
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const task = gate.then(() => recordOutputPublication(delayed));
+    recordOutputPublication(ready);
+    release();
+    await task;
+    expect(
+      mergeOutputOrigins([delayed, ready, pending], [ready, delayed]),
+    ).toEqual([ready, delayed, pending]);
+  });
   it("keeps equal text from different producers separate", () => {
     const first: ExecResult = { stdout: "same", stderr: "", exitCode: 0 };
     const second: ExecResult = { stdout: "same", stderr: "", exitCode: 0 };

@@ -121,6 +121,7 @@ describe("command byte descriptions", () => {
       customCommands: [
         {
           name: "closeinput",
+          streamingStdin: true,
           async execute(_args, ctx) {
             assert(ctx.byteIO);
             const pending = ctx.byteIO.stdin.read().catch(() => null);

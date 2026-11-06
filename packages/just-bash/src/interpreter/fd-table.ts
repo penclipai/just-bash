@@ -1,4 +1,5 @@
 import { writeOutputFile } from "../fs/output-write.js";
+
 /**
  * File Descriptor Table
  *
@@ -24,6 +25,16 @@ import { writeOutputFile } from "../fs/output-write.js";
  * older code paths.
  */
 
+import {
+  releaseDescription,
+  retainDescription,
+} from "./description-lifetime.js";
+import {
+  descriptionRaw,
+  inheritDescription,
+  shareDescription,
+  updateDescriptionRaw,
+} from "./fd-description-state.js";
 import { checkFdLimit } from "./helpers/result.js";
 import type { OutputEndpoint } from "./output-endpoints.js";
 import type { InterpreterContext, SharedInputSession } from "./types.js";
@@ -43,6 +54,7 @@ export function cloneFdAliases(
     let copy = copiedGroups.get(group);
     if (!copy) {
       copy = new Set(group);
+      inheritDescription(group, copy);
       copiedGroups.set(group, copy);
     }
     cloned.set(fd, copy);
@@ -80,6 +92,8 @@ export type FdEntry =
 interface FdSnapshotEntry {
   inputSession?: SharedInputSession;
   outputEndpoint?: OutputEndpoint;
+  outputPinned?: boolean;
+  inputPinned?: boolean;
   raw: string | undefined;
   isInput: boolean;
   isDevice: boolean;
@@ -280,6 +294,7 @@ export function getRawFd(
 ): string | undefined {
   return (
     ctx.state.fdInputSessions?.get(fd)?.remaining ??
+    descriptionRaw(ctx.state.fdAliases?.get(fd)) ??
     ctx.state.fileDescriptors?.get(fd)
   );
 }
@@ -326,6 +341,7 @@ function writeRawFd(
   const fds = table(ctx);
   if (!fds.has(fd)) checkFdLimit(ctx);
   fds.set(fd, raw);
+  updateDescriptionRaw(aliasGroup(ctx, fd), raw);
   markContent(ctx, fd, isInput);
   if (isDevice) {
     ctx.state.deviceFds ??= new Set();
@@ -349,7 +365,9 @@ export function setRawFd(
   isDevice = false,
 ): void {
   leaveAliasGroup(ctx, fd);
+  releaseDescription(ctx.state.fdInputSessions?.get(fd));
   ctx.state.fdInputSessions?.delete(fd);
+  releaseDescription(ctx.state.fdOutputEndpoints?.get(fd));
   ctx.state.fdOutputEndpoints?.delete(fd);
   writeRawFd(ctx, fd, raw, isInput, isDevice);
 }
@@ -359,6 +377,7 @@ export function setFdEntry(
   fd: number,
   entry: FdEntry,
 ): void {
+  if (entry.kind === "dup-out") retainDescription(entry.endpoint);
   const description =
     entry.kind === "readwrite" ? readWriteDescription(ctx, entry) : undefined;
   setRawFd(
@@ -384,7 +403,9 @@ export function setFdEntry(
 export function closeFd(ctx: InterpreterContext, fd: number): void {
   leaveAliasGroup(ctx, fd);
   ctx.state.fileDescriptors?.delete(fd);
+  releaseDescription(ctx.state.fdInputSessions?.get(fd));
   ctx.state.fdInputSessions?.delete(fd);
+  releaseDescription(ctx.state.fdOutputEndpoints?.get(fd));
   ctx.state.fdOutputEndpoints?.delete(fd);
   ctx.state.inputFds?.delete(fd);
   ctx.state.deviceFds?.delete(fd);
@@ -406,6 +427,8 @@ export function dupFd(
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
   if (fd === sourceFd) return true;
+  retainDescription(inputSession);
+  retainDescription(outputEndpoint);
   setRawFd(
     ctx,
     fd,
@@ -435,6 +458,8 @@ export function moveFd(
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
   if (fd === sourceFd) return true;
+  retainDescription(inputSession);
+  retainDescription(outputEndpoint);
   const isInput = ctx.state.inputFds?.has(sourceFd) === true;
   const isDevice = ctx.state.deviceFds?.has(sourceFd) === true;
   const description = aliasGroup(ctx, sourceFd);
@@ -534,9 +559,10 @@ export async function writeFdEntry(
     (fd) => aliasGroup(ctx, fd) === description && isFdOpen(ctx, fd),
   );
   const latestRaw =
-    survivor !== undefined
+    descriptionRaw(description) ??
+    (survivor !== undefined
       ? getRawFd(ctx, survivor)
-      : detachedDescriptionRaw.get(description);
+      : detachedDescriptionRaw.get(description));
   const writeEntry = latestRaw === undefined ? entry : decodeFdEntry(latestRaw);
   if (writeEntry.kind !== "readwrite") return false;
 
@@ -557,6 +583,7 @@ export async function writeFdEntry(
     encoding,
   );
   const raw = encodeFdEntry(updated);
+  updateDescriptionRaw(description, raw);
   descriptionsFor(ctx).set(updated, description);
   let live = false;
   for (const fd of description) {
@@ -587,7 +614,9 @@ export function rememberFd(
   snapshot.set(fd, {
     raw,
     inputSession: ctx.state.fdInputSessions?.get(fd),
+    inputPinned: retainDescription(ctx.state.fdInputSessions?.get(fd)),
     outputEndpoint: ctx.state.fdOutputEndpoints?.get(fd),
+    outputPinned: retainDescription(ctx.state.fdOutputEndpoints?.get(fd)),
     isInput: ctx.state.inputFds?.has(fd) === true,
     isDevice: ctx.state.deviceFds?.has(fd) === true,
     description,
@@ -620,10 +649,15 @@ export function restoreFds(
 ): void {
   const fds = ctx.state.fileDescriptors;
   if (!fds) return;
-  for (const [
-    fd,
-    { raw, isInput, isDevice, description, inputSession, outputEndpoint },
-  ] of snapshot) {
+  for (const [fd, entry] of snapshot) {
+    const {
+      raw,
+      isInput,
+      isDevice,
+      description,
+      inputSession,
+      outputEndpoint,
+    } = entry;
     if (raw === undefined) {
       closeFd(ctx, fd);
       continue;
@@ -637,6 +671,8 @@ export function restoreFds(
       survivor !== undefined
         ? getRawFd(ctx, survivor)
         : description && detachedDescriptionRaw.get(description);
+    retainDescription(inputSession);
+    retainDescription(outputEndpoint);
     setRawFd(
       ctx,
       fd,
@@ -659,6 +695,46 @@ export function restoreFds(
       detachedDescriptionRaw.delete(description);
     }
   }
+  releaseFdSnapshot(snapshot);
+}
+
+/** Discard transaction-only descriptor pins without restoring its bindings. */
+export function releaseFdSnapshot(snapshot: FdSnapshot): void {
+  for (const entry of snapshot.values()) {
+    if (entry.outputPinned) {
+      entry.outputPinned = false;
+      releaseDescription(entry.outputEndpoint);
+    }
+    if (entry.inputPinned) {
+      entry.inputPinned = false;
+      releaseDescription(entry.inputSession);
+    }
+  }
+}
+
+export function closeFdTable(ctx: InterpreterContext): void {
+  for (const fd of [...(ctx.state.fileDescriptors?.keys() ?? [])])
+    closeFd(ctx, fd);
+}
+
+/** Refresh the legacy public table from its shared open-description cursors. */
+export function synchronizeFdValues(ctx: InterpreterContext): void {
+  for (const fd of ctx.state.fileDescriptors?.keys() ?? []) {
+    const raw = getRawFd(ctx, fd);
+    if (raw !== undefined) ctx.state.fileDescriptors?.set(fd, raw);
+  }
+}
+
+/** Concurrent namespace copies retain one input/RW open-description cursor. */
+export function shareFdDescriptions(ctx: InterpreterContext): void {
+  for (const fd of ctx.state.fileDescriptors?.keys() ?? []) {
+    const entry = getFdEntry(ctx, fd);
+    if (entry?.kind === "input" || entry?.kind === "readwrite") {
+      const raw = getRawFd(ctx, fd);
+      if (raw !== undefined)
+        shareDescription(ensureFdDescription(ctx, fd), raw);
+    }
+  }
 }
 
 /** Give a child its own fd table while retaining one shared stdin description. */
@@ -675,6 +751,7 @@ export function attachInputSession(
   state.fdOutputEndpoints = new Map(state.fdOutputEndpoints);
   state.closedStandardFds = new Set(state.closedStandardFds);
   state.closedStandardFds.delete(0);
+  retainDescription(inputSession);
   setFdEntry(ctx, 0, { kind: "input", content: inputSession.remaining });
   state.fdInputSessions.set(0, inputSession);
   // fd 0 supplies the input, including EOF; no legacy content fallback.

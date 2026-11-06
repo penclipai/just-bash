@@ -13,6 +13,10 @@ import {
   resolveEndpointRoute,
   serializeOutputWrite,
 } from "./output-endpoints.js";
+import {
+  installOutputDescriptions,
+  isPipeOutputEndpoint,
+} from "./pipe-endpoints.js";
 /**
  * Redirection Handling
  *
@@ -56,6 +60,7 @@ import {
   isFdOpen,
   moveFd,
   readFd,
+  releaseFdSnapshot,
   rememberFd,
   restoreFds,
   setFdEntry,
@@ -150,6 +155,8 @@ function descriptorSink(source: PreparedDupSource, fd: 1 | 2): RedirectSink {
 
 export type PreparedRedirections = {
   outputRoutes: PreparedOutputRoutes;
+  outputFds?: readonly number[];
+  standardFds?: ReadonlyMap<number, FdEntry>;
   stdin: string | undefined;
   stdinSourceFd: number;
   stdinReplaced: boolean;
@@ -442,14 +449,38 @@ async function prepareRedirectionsWithState(
     stdin = "";
     stdinUnavailable = true;
   }
-  const base = (): PreparedRedirections => ({
-    outputRoutes,
-    stdin,
-    stdinSourceFd,
-    stdinReplaced,
-    stdinUnavailable,
-    error: null,
-  });
+  const base = (): PreparedRedirections => {
+    if (
+      transaction.standardSnapshot.size &&
+      outputRoutes.stdout === outputRoutes.stderr
+    ) {
+      for (const fd of [1, 2]) {
+        rememberFd(ctx, transaction.standardSnapshot, fd);
+        if (!transaction.standardClosedSnapshot.has(fd))
+          transaction.standardClosedSnapshot.set(
+            fd,
+            ctx.state.closedStandardFds?.has(fd) === true,
+          );
+      }
+    }
+    const outputFds = [...transaction.standardSnapshot.keys()].filter(
+      (fd) => fd === 1 || fd === 2,
+    );
+    return {
+      outputRoutes,
+      outputFds,
+      standardFds: outputFds.length
+        ? new Map(
+            outputFds.map((fd) => [fd, standardRoutes.get(fd) as FdEntry]),
+          )
+        : undefined,
+      stdin,
+      stdinSourceFd,
+      stdinReplaced,
+      stdinUnavailable,
+      error: null,
+    };
+  };
   const fail = async (
     error: ExecResult,
     index: number,
@@ -495,6 +526,21 @@ async function prepareRedirectionsWithState(
             fd,
           ),
       );
+    }
+    if (
+      transaction.policy !== "persistent" &&
+      (fd === 0 || fd === 1 || fd === 2)
+    ) {
+      rememberFd(ctx, transaction.standardSnapshot, fd);
+      if (!transaction.standardClosedSnapshot.has(fd))
+        transaction.standardClosedSnapshot.set(
+          fd,
+          ctx.state.closedStandardFds?.has(fd) === true,
+        );
+      if (fd === 0) {
+        ctx.state.closedStandardFds?.delete(fd);
+        setFdEntry(ctx, fd, entry);
+      }
     }
     if (
       transaction.policy === "persistent" &&
@@ -1198,6 +1244,9 @@ export function createRedirectionTransaction(
         }
         ctx.state.nextFd = state.nextFd;
       }
+      releaseFdSnapshot(state.numericSnapshot);
+      releaseFdSnapshot(state.standardSnapshot);
+      releaseFdSnapshot(state.fdVariableSnapshot);
     },
   };
 }
@@ -1299,8 +1348,18 @@ export async function withPreparedRedirections(
       ctx.state.groupStdinSourceFd = prepared.stdinSourceFd;
     }
     const inheritedOutput = ctx.outputEndpoints;
-    const endpoints = bindOutputEndpoints(ctx, prepared.outputRoutes);
+    const endpoints = bindOutputEndpoints(
+      ctx,
+      prepared.outputRoutes,
+      Boolean(prepared.outputFds?.length),
+    );
     ctx.outputEndpoints = endpoints;
+    installOutputDescriptions(
+      ctx,
+      prepared.outputFds ?? [],
+      endpoints,
+      prepared.standardFds,
+    );
     try {
       const result = await run(prepared);
       return await routeCompoundOutput(
@@ -1376,7 +1435,15 @@ export async function applyRedirections(
     : undefined;
   // Output redirected away from the caller still consumes the shared budget.
   // Unredirected pipeline output is charged once at the pipeline boundary.
-  if (hasRedirections || captures?.stdout || captures?.stderr) {
+  const retainedEndpoint = Object.values(outputRoutes).some(
+    (sink) => sink.kind === "endpoint" && !isPipeOutputEndpoint(sink.endpoint),
+  );
+  if (
+    hasRedirections ||
+    retainedEndpoint ||
+    captures?.stdout ||
+    captures?.stderr
+  ) {
     result = ctx.executionScope.accountResult(result, "redirection");
   }
   let { stdout, stderr, exitCode } = result;

@@ -213,7 +213,7 @@ async function callFunctionBody(
         ctx.executeCommand(
           func.body,
           prepared.stdin ?? stdin,
-          stdinRedirected || prepared.stdin !== undefined || stdin !== "",
+          stdinRedirected || prepared.stdinReplaced,
         ),
       stdinRedirected,
     );

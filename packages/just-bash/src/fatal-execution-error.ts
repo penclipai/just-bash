@@ -1,3 +1,4 @@
+import { BrokenPipeError } from "./interpreter/byte-pipe.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
@@ -12,6 +13,7 @@ export function rethrowFatalExecutionError(error: unknown): void {
   if (
     error instanceof ExecutionLimitError ||
     error instanceof ExecutionAbortedError ||
+    error instanceof BrokenPipeError ||
     error instanceof SecurityViolationError
   ) {
     throw error;

@@ -1,3 +1,8 @@
+import {
+  cloneOwnedDescriptors,
+  releaseOwnedDescriptors,
+} from "./interpreter/descriptor-state.js";
+import { shareFdDescriptions } from "./interpreter/fd-table.js";
 import { createLiveInput } from "./interpreter/live-input.js";
 import { createOutputSink } from "./output-sink.js";
 import { isPresentedOutput } from "./presented-output.js";
@@ -621,6 +626,7 @@ export class Bash {
     const runtimeCommand: RuntimeCommand = {
       name: command.name,
       trusted,
+      streamingStdin: command.streamingStdin,
       internalIsExtension: isExtension,
       internalOriginalCommand: originalCommand,
       execute: (args, context) => command.execute(args, context),
@@ -755,6 +761,7 @@ export class Bash {
       callerState && !ownOutput
         ? output?.captureResult(inheritedSubstitutionDepth)
         : undefined;
+    let descriptorState: InterpreterState | undefined;
     const finishResult = async (
       result: BashExecResult,
     ): Promise<BashExecResult> => {
@@ -902,6 +909,8 @@ export class Bash {
       // is copied so changes never reach the source.
       const shellSource =
         callerState && !effectiveOptions.newShell ? callerState : this.state;
+      if (callerState)
+        shareFdDescriptions({ state: callerState } as InterpreterContext);
 
       const execState: InterpreterState = {
         ...shellSource,
@@ -946,6 +955,21 @@ export class Bash {
         // Extra arguments injected directly into first command's arg list
         extraArgs: effectiveOptions.args,
       };
+      const ioSource = callerState ?? shellSource;
+      execState.automaPipelineActive = ioSource.automaPipelineActive;
+      execState.processSubstitutions = ioSource.processSubstitutions?.slice();
+      for (const field of [
+        "fileDescriptors",
+        "inputFds",
+        "deviceFds",
+        "fdAliases",
+        "fdInputSessions",
+        "fdOutputEndpoints",
+        "closedStandardFds",
+      ] as const)
+        Object.assign(execState, { [field]: ioSource[field] });
+      cloneOwnedDescriptors(execState);
+      descriptorState = execState;
 
       if (effectiveOptions.newShell) {
         execState.bashPid = executionScope.shellJobs.allocate(
@@ -1054,6 +1078,7 @@ export class Bash {
           let result: ExecResult;
           try {
             result = await interpreter.executeScript(ast);
+            releaseOwnedDescriptors(execState);
             if (!callerState) await executionScope.shellJobs.joinAll();
             else if (effectiveOptions.newShell)
               await executionScope.shellJobs.wait(execState.bashPid);
@@ -1206,6 +1231,7 @@ export class Bash {
       }
       throw error;
     } finally {
+      if (descriptorState) releaseOwnedDescriptors(descriptorState);
       resultCapture?.close();
       branchOutput?.release();
       combinedAbort.cleanup();

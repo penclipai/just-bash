@@ -32,6 +32,7 @@ export type CustomCommand = Command | LazyCommand;
  */
 export interface LazyCommand {
   name: string;
+  streamingStdin?: boolean;
   /**
    * Set false to run through the restricted extension boundary. Commands are
    * trusted by default for compatibility with existing host integrations.
@@ -100,9 +101,14 @@ export function isLazyCommand(cmd: CustomCommand): cmd is LazyCommand {
 export function defineCommand(
   name: string,
   execute: (args: string[], ctx: ResolvedCommandContext) => Promise<ExecResult>,
-  options: { trusted?: boolean } = {},
+  options: { trusted?: boolean; streamingStdin?: boolean } = {},
 ): Command {
-  return { name, trusted: options.trusted !== false, execute };
+  return {
+    name,
+    trusted: options.trusted !== false,
+    streamingStdin: options.streamingStdin,
+    execute,
+  };
 }
 
 /** A caller waiting for a shared lazy load to settle. */
@@ -169,6 +175,7 @@ export function createLazyCustomCommand(lazy: LazyCommand): Command {
   return {
     name: lazy.name,
     trusted: lazy.trusted !== false,
+    streamingStdin: lazy.streamingStdin,
     async execute(
       args: string[],
       ctx: ResolvedCommandContext,

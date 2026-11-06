@@ -1,4 +1,5 @@
 import { commandSubstitutionText } from "../../execution-output.js";
+
 /**
  * Arithmetic Text Expansion
  *
@@ -7,6 +8,7 @@ import { commandSubstitutionText } from "../../execution-output.js";
  * expand to $(( 1 + 2 * 3 )) = 7, not $(( (1+2) * 3 )) = 9.
  */
 
+import { executeArithmeticSubstitution } from "../arithmetic-substitution.js";
 import type { InterpreterContext } from "../types.js";
 import { getVariable } from "./variable.js";
 
@@ -170,17 +172,13 @@ export async function expandSubscriptForAssocArray(
         }
         // Extract and execute the command
         const cmdStr = inner.slice(i + 2, j - 1);
-        if (ctx.execFn) {
-          const cmdResult = await ctx.execFn(cmdStr, {
-            signal: ctx.state.signal,
-          });
-          // Strip trailing newlines like command substitution does
-          result += commandSubstitutionText(cmdResult).replace(/\n+$/, "");
-          // Forward stderr to expansion stderr
-          if (cmdResult.stderr) {
-            ctx.state.expansionStderr =
-              (ctx.state.expansionStderr || "") + cmdResult.stderr;
-          }
+        const cmdResult = await executeArithmeticSubstitution(ctx, cmdStr);
+        // Strip trailing newlines like command substitution does
+        result += commandSubstitutionText(cmdResult).replace(/\n+$/, "");
+        // Forward stderr to expansion stderr
+        if (cmdResult.stderr) {
+          ctx.state.expansionStderr =
+            (ctx.state.expansionStderr || "") + cmdResult.stderr;
         }
         i = j;
       } else if (inner[i + 1] === "{") {
@@ -219,15 +217,11 @@ export async function expandSubscriptForAssocArray(
         j++;
       }
       const cmdStr = inner.slice(i + 1, j);
-      if (ctx.execFn) {
-        const cmdResult = await ctx.execFn(cmdStr, {
-          signal: ctx.state.signal,
-        });
-        result += commandSubstitutionText(cmdResult).replace(/\n+$/, "");
-        if (cmdResult.stderr) {
-          ctx.state.expansionStderr =
-            (ctx.state.expansionStderr || "") + cmdResult.stderr;
-        }
+      const cmdResult = await executeArithmeticSubstitution(ctx, cmdStr);
+      result += commandSubstitutionText(cmdResult).replace(/\n+$/, "");
+      if (cmdResult.stderr) {
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") + cmdResult.stderr;
       }
       i = j + 1;
     } else {

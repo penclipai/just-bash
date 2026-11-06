@@ -11,6 +11,10 @@ import { encodeUtf8ToBytes, latin1FromBytes } from "../encoding.js";
 import { relinquishPipelineOutput } from "../execution-scope.js";
 import { _performanceNow } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
+import {
+  executeConcurrentPipeline,
+  type PipelineStageFactory,
+} from "./concurrent-pipeline.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
 import { clearArray, cloneArrays, setArrayElement } from "./helpers/array.js";
 import { OK } from "./helpers/result.js";
@@ -36,7 +40,16 @@ export async function executePipeline(
   ctx: InterpreterContext,
   node: PipelineNode,
   executeCommand: ExecuteCommandFn,
+  createStage?: PipelineStageFactory,
 ): Promise<ExecResult> {
+  if (
+    createStage &&
+    node.commands.length > 1 &&
+    ctx.executionScope.shellJobs.canLaunch(
+      node.commands.length - Number(ctx.state.shoptOptions.lastpipe),
+    )
+  )
+    return executeConcurrentPipeline(ctx, node, createStage);
   // Record start time for timed pipelines
   const startTime = node.timed ? _performanceNow() : 0;
 
@@ -101,7 +114,7 @@ export async function executePipeline(
     let restoreOutput: (() => void) | undefined;
 
     let result: ExecResult;
-    const outputCheckpoint = ctx.executionScope.outputBytesUsed;
+    const outputCheckpoint = ctx.executionScope.outputBytesAdmitted;
     try {
       if (!isLast) restoreOutput = bindPipelineOutput(ctx, pipeStderr);
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
@@ -183,7 +196,7 @@ export async function executePipeline(
     result = ctx.executionScope.accountResult(
       result,
       "pipeline",
-      ctx.executionScope.outputBytesUsed - outputCheckpoint,
+      ctx.executionScope.outputBytesAdmitted - outputCheckpoint,
     );
 
     if (!isLast) {

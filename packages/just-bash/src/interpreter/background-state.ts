@@ -1,6 +1,7 @@
+import { utf8ByteLength } from "../encoding.js";
+import { releaseDescription } from "./description-lifetime.js";
 import { beginIsolatedShellState } from "./state-transaction.js";
 import type { InterpreterState } from "./types.js";
-import { utf8ByteLength } from "../encoding.js";
 
 /** Namespace-only clone. Shared open input/RW descriptions are rejected at launch. */
 export function cloneBackgroundState(
@@ -8,11 +9,10 @@ export function cloneBackgroundState(
 ): InterpreterState {
   const state = { ...parent };
   beginIsolatedShellState(state);
-  state.automaTraps = new Map(
-    parent.options.errtrace && parent.automaTraps?.has("ERR")
-      ? [["ERR", parent.automaTraps.get("ERR")!]]
-      : [],
-  );
+  const errTrap = parent.options.errtrace
+    ? parent.automaTraps?.get("ERR")
+    : undefined;
+  state.automaTraps = new Map(errTrap === undefined ? [] : [["ERR", errTrap]]);
   state.automaTrapVersions = new Map();
   state.automaTrapRunning = new Set();
   state.automaTrapScriptDepth = 0;
@@ -24,7 +24,11 @@ export function cloneBackgroundState(
     .map((entry) => ({ ...entry }));
   state.groupStdin = "";
   state.groupStdinSourceFd = undefined;
+  for (const session of state.fdInputSessions?.values() ?? [])
+    releaseDescription(session);
   state.fdInputSessions = undefined;
+  releaseDescription(state.fdOutputEndpoints?.get(0));
+  state.fdOutputEndpoints?.delete(0);
   state.fileDescriptors?.delete(0);
   state.inputFds?.delete(0);
   state.deviceFds?.delete(0);

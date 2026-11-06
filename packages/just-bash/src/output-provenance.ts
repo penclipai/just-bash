@@ -2,9 +2,11 @@ import type { OutputSegment } from "./types.js";
 
 interface Origin {
   readonly ordinal: number;
+  publication?: number;
 }
 const origins = new WeakMap<OutputSegment, Origin>();
 let next = 0;
+let nextPublication = 0;
 const supplements = new WeakMap<
   object,
   Map<
@@ -43,6 +45,12 @@ export function outputOrigin(segment: OutputSegment): Origin {
   return origin;
 }
 
+/** Called when a segment enters the shared publication queue. */
+export function recordOutputPublication(segment: OutputSegment): void {
+  const origin = outputOrigin(segment);
+  origin.publication ??= nextPublication++;
+}
+
 export function inheritOutputOrigin(
   source: OutputSegment,
   target: OutputSegment,
@@ -66,8 +74,15 @@ export function mergeOutputOrigins(
         merged.push(part);
       }
     }
-  merged.sort(
-    (left, right) => outputOrigin(left).ordinal - outputOrigin(right).ordinal,
-  );
+  merged.sort((left, right) => {
+    const a = outputOrigin(left),
+      b = outputOrigin(right);
+    if (a.publication !== undefined || b.publication !== undefined) {
+      if (a.publication === undefined) return 1;
+      if (b.publication === undefined) return -1;
+      return a.publication - b.publication;
+    }
+    return a.ordinal - b.ordinal;
+  });
   return merged;
 }

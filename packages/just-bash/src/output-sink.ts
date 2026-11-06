@@ -17,6 +17,7 @@ import {
   mergeOutputOrigins,
   outputOrigin,
   outputSupplement,
+  recordOutputPublication,
 } from "./output-provenance.js";
 import { markPresentedOutput } from "./presented-output.js";
 import type { ExecResult, OutputSegment } from "./types.js";
@@ -223,6 +224,7 @@ export function createOutputSink(
         }
       }
       if (hidden[stream]) return;
+      if (part.origin) recordOutputPublication(part.origin);
       if (trackPublished && !finishing) {
         scope.consumeWork(1, "published output segment");
         publicationLeases.push(
@@ -231,6 +233,7 @@ export function createOutputSink(
         const retained: OutputSegment = [stream, text, part.kind ?? "text"];
         if (part.origin) inheritOutputOrigin(part.origin, retained);
         else outputOrigin(retained);
+        recordOutputPublication(retained);
         publishedParts.push(retained);
       }
       part.emitted = true;

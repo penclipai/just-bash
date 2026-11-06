@@ -26,6 +26,7 @@ import {
   parseArithNumber,
 } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
+import { executeArithmeticSubstitution } from "./arithmetic-substitution.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
 import { getArrayElements, getVariable } from "./expansion.js";
 import { getArrayElement, hasArray, setArrayElement } from "./helpers/array.js";
@@ -451,19 +452,14 @@ async function evaluateArithmeticInternal(
 
     case "ArithCommandSubst": {
       // Execute the command and parse the result as a number
-      if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command, {
-          signal: ctx.state.signal,
-        });
-        // Command substitution stderr should go to the shell's stderr at expansion time
-        if (result.stderr) {
-          ctx.state.expansionStderr =
-            (ctx.state.expansionStderr || "") + result.stderr;
-        }
-        const output = result.stdout.trim();
-        return Number.parseInt(output, 10) || 0;
+      const result = await executeArithmeticSubstitution(ctx, expr.command);
+      // Command substitution stderr should go to the shell's stderr at expansion time
+      if (result.stderr) {
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") + result.stderr;
       }
-      return 0;
+      const output = result.stdout.trim();
+      return Number.parseInt(output, 10) || 0;
     }
 
     case "ArithBracedExpansion": {
@@ -960,13 +956,12 @@ async function evalConcatPartToStringAsync(
     case "ArithBracedExpansion":
       return await expandBracedContent(ctx, expr.content);
     case "ArithCommandSubst": {
-      if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command, {
-          signal: ctx.state.signal,
-        });
-        return result.stdout.trim();
+      const result = await executeArithmeticSubstitution(ctx, expr.command);
+      if (result.stderr) {
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") + result.stderr;
       }
-      return "0";
+      return result.stdout.trim();
     }
     case "ArithConcat": {
       let result = "";

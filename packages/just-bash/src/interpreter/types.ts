@@ -13,7 +13,7 @@ import type { ExecutionScope } from "../execution-scope.js";
 import type { IFileSystem } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
-import type { createOutputSink } from "../output-sink.js";
+import type { createOutputSink, OutputSink } from "../output-sink.js";
 import type {
   CommandExecOptions,
   CommandRegistry,
@@ -267,6 +267,8 @@ export interface CallStackState {
  * in condition contexts (if, while, until, ||, &&).
  */
 export interface ControlFlowState {
+  /** Nested host exec captures results while this shell belongs to a pipe. */
+  automaPipelineActive?: boolean;
   /** True when executing condition for if/while/until (errexit doesn't apply) */
   inCondition: boolean;
   /** Current loop nesting depth (for break/continue) */
@@ -517,6 +519,8 @@ export interface InterpreterContext {
     options?: InterpreterExecOptions,
     stdinAlreadyAccounted?: boolean,
     inputSession?: SharedInputSession,
+    outputEndpoints?: OutputEndpoints,
+    output?: OutputSink,
   ) => Promise<ExecResult>;
   executeScript: (node: ScriptNode) => Promise<ExecResult>;
   executeStatement: (node: StatementNode) => Promise<ExecResult>;

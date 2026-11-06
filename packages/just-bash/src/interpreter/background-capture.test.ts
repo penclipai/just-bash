@@ -1,15 +1,9 @@
 import { expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import { defineCommand } from "../custom-commands.js";
-import { InMemoryFs } from "../fs/in-memory-fs/index.js";
-import type {
-  BufferEncoding,
-  FileContent,
-  WriteFileOptions,
-} from "../fs/interface.js";
 
 function deferred() {
-  let resolve!: () => void;
+  let resolve = () => {};
   const promise = new Promise<void>((done) => {
     resolve = done;
   });
@@ -42,35 +36,29 @@ it("does not publish a captured background tail twice", async () => {
 it("does not lend capture credits to concurrent naked writes", async () => {
   const started = deferred(),
     release = deferred();
-  class GatedFs extends InMemoryFs {
-    override async appendFile(
-      path: string,
-      content: FileContent,
-      options?: WriteFileOptions | BufferEncoding,
-    ) {
-      if (path === "/dev/fd/63" && content === "a") {
-        started.resolve();
-        await release.promise;
-      }
-      await super.appendFile(path, content, options);
-    }
-  }
-  const fs = new GatedFs();
   const bash = new Bash({
-    fs,
     cwd: "/",
     defenseInDepth: false,
     executionLimits: { maxOutputSize: 4 },
     customCommands: [
+      defineCommand("admitted", async (_args, ctx) => {
+        await ctx.writeOutput?.("a", "stdout");
+        started.resolve();
+        await release.promise;
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }),
       defineCommand("naked", async (_args, ctx) => {
         await started.promise;
-        await ctx.fs.writeFile("/dev/fd/63", "xxxx");
-        release.resolve();
+        try {
+          await ctx.fs.writeFile("/dev/fd/63", "xxxx");
+        } finally {
+          release.resolve();
+        }
         return { stdout: "", stderr: "", exitCode: 0 };
       }),
     ],
   });
-  const result = await bash.exec(": > >(naked & printf a; wait)");
+  const result = await bash.exec(": > >(naked & admitted; wait)");
   expect(result.exitCode).toBe(126);
   expect(result.executionFailure?.limitType).toBe("output_size");
 });

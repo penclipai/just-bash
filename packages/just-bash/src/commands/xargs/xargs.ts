@@ -418,7 +418,8 @@ export const xargsCommand: RuntimeCommand = {
         }
         if (verbose) {
           const cmdLine = cmdArgs.map(quoteArg).join(" ");
-          appendStderr(`${cmdLine}\n`);
+          if (ctx.writeOutput) await ctx.writeOutput(`${cmdLine}\n`, "stderr");
+          else appendStderr(`${cmdLine}\n`);
         }
         // Use ctx.exec to run the command, passing current working directory
         if (argFile !== null && ctx.execWithInheritedStdin) {

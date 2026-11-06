@@ -384,6 +384,8 @@ export type ResolvedCommandContext = RuntimeCommandContext;
 
 export interface Command {
   name: string;
+  /** Opt in to lazy stdin via byteIO/readStdin; otherwise stdin is complete. */
+  streamingStdin?: boolean;
   /**
    * Host-provided commands are trusted by default for compatibility. Set this
    * to false to select the restricted extension boundary.

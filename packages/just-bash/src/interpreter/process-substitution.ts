@@ -5,7 +5,7 @@ import {
   registerOutputFileWriter,
   writeOutputFile,
 } from "../fs/output-write.js";
-import { setFdEntry } from "./fd-table.js";
+import { attachInputSession, setFdEntry } from "./fd-table.js";
 import type { OutputEndpoints } from "./output-endpoints.js";
 import {
   captureProcessWriterEndpoints,
@@ -515,6 +515,7 @@ async function captureProcessBytes(
     originalFs = ctx.fs;
     ctx.fs = captureFileSystem(originalFs, accounting);
     restore = beginIsolatedShellState(ctx.state);
+    if (stdin !== undefined) attachInputSession(ctx, { remaining: stdin });
     setFdEntry(ctx, 1, { kind: "output", path, append: true });
     ctx.state.closedStandardFds?.delete(1);
     ctx.executionScope.throwIfAborted("process substitution");

@@ -207,15 +207,19 @@ describe("Automa child process stream capabilities", () => {
     const shell = new Bash({
       defenseInDepth: false,
       customCommands: [
-        defineCommand("reader", async (_args, ctx) => {
-          const controller = new AbortController();
-          const read = ctx.readStdinChunk?.(controller.signal);
-          controller.abort();
-          await expect(read).rejects.toThrow();
-          source.write(text("later\n"));
-          source.write(null);
-          return { stdout: "", stderr: "", exitCode: 0 };
-        }),
+        defineCommand(
+          "reader",
+          async (_args, ctx) => {
+            const controller = new AbortController();
+            const read = ctx.readStdinChunk?.(controller.signal);
+            controller.abort();
+            await expect(read).rejects.toThrow();
+            source.write(text("later\n"));
+            source.write(null);
+            return { stdout: "", stderr: "", exitCode: 0 };
+          },
+          { streamingStdin: true },
+        ),
       ],
     });
     const result = await shell.exec("reader; cat", { stdinSource: source });

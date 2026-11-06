@@ -270,7 +270,11 @@ export async function handleRead(
       return result("", message, 1);
     }
     effectiveStdin = readable.content;
-  } else if (!effectiveStdin && ctx.state.groupStdin !== undefined) {
+  } else if (
+    !effectiveStdin &&
+    stdinSourceFd < 0 &&
+    ctx.state.groupStdin !== undefined
+  ) {
     effectiveStdin = ctx.state.groupStdin;
   }
 

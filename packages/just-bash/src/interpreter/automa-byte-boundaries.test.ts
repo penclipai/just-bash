@@ -40,6 +40,14 @@ describe("Automa shell byte boundaries", () => {
     expect(result.stdout).toBe("abc");
     expect(result.stderr).toBe("");
   });
+  it("charges aliased function output before a return", async () => {
+    const result = await new Bash({
+      executionLimits: { maxOutputSize: 3 },
+    }).exec("f(){ printf ab; printf cd >&2; return; }; f 2>&1");
+    expect(result.stdout).toBe("ab");
+    expect(result.exitCode).toBe(126);
+    expect(result.executionFailure?.limitType).toBe("output_size");
+  });
   it("uses the configured brace cap and fails visibly on exhaustion", async () => {
     const bash = new Bash({
       executionLimits: { maxBraceExpansionResults: 12000 },

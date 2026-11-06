@@ -1,7 +1,22 @@
 import { outputSegments } from "../execution-output.js";
 import { launchBackgroundStatement } from "./background-statement.js";
-import { resolveEndpointRoute } from "./output-endpoints.js";
-import { automaTrapEligible, automaTrapRun, automaTrapShell } from "./traps.js";
+import {
+  bindOutputEndpoints,
+  type OutputEndpoints,
+  resolveEndpointRoute,
+} from "./output-endpoints.js";
+import {
+  commandPipeOutputs,
+  installOutputDescriptions,
+  type PipeCommandOutputs,
+} from "./pipe-endpoints.js";
+import { createProcessFdNamespace } from "./process-fd-namespace.js";
+import {
+  automaTrapEligible,
+  automaTrapPipeline,
+  automaTrapRun,
+  automaTrapShell,
+} from "./traps.js";
 
 /**
  * Interpreter - AST Execution Engine
@@ -198,24 +213,27 @@ export class Interpreter {
       virtualFileMetadata: options.virtualFileMetadata,
       state,
       substitutionDepth: options.substitutionDepth,
-      fs: withUmaskFileSystem(
-        options.fs,
+      fs: createProcessFdNamespace(
+        withUmaskFileSystem(
+          options.fs,
+          state,
+          options.limits,
+          options.executionScope,
+        ),
         state,
-        options.limits,
-        options.executionScope,
       ),
       fsIdentity: getFileSystemIdentity(options.fs),
       commands: options.commands,
       limits: options.limits,
       executionScope: options.executionScope,
-      execFn: (...args) =>
+      execFn: (script, execOptions, accounted, input, endpoints, output) =>
         this.options.execForState(
           state,
-          this.ctx.output,
-          this.ctx.outputEndpoints,
+          output ?? this.ctx.output,
+          endpoints ?? this.ctx.outputEndpoints,
           this.ctx.fs,
           this.ctx.substitutionDepth,
-        )(...args),
+        )(script, execOptions, accounted, input),
       executeScript: this.executeScript.bind(this),
       executeStatement: this.executeStatement.bind(this),
       executeCommand: this.executeCommand.bind(this),
@@ -229,6 +247,7 @@ export class Interpreter {
     };
     if (options.inputSession)
       attachInputSession(this.ctx, options.inputSession);
+    installOutputDescriptions(this.ctx);
   }
 
   /**
@@ -613,8 +632,30 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin, stdinOwned) =>
-      this.executeCommand(cmd, stdin, stdinOwned),
+    return executePipelineHelper(
+      this.ctx,
+      node,
+      (cmd, stdin, stdinOwned) => this.executeCommand(cmd, stdin, stdinOwned),
+      (state, inputSession, outputEndpoints, output, child) => {
+        const stage = child
+          ? // @banned-pattern-ignore: pipeline children reuse this.options.executionScope and cannot mint budgets
+            new Interpreter(
+              {
+                ...this.options,
+                inputSession,
+                outputEndpoints,
+                output,
+                fs: this.ctx.fs,
+                substitutionDepth: this.ctx.substitutionDepth,
+              },
+              state,
+            )
+          : this;
+        return (command) =>
+          automaTrapPipeline(stage.ctx, node, child, () =>
+            stage.executeCommand(command, "", false),
+          );
+      },
     );
   }
 
@@ -1037,17 +1078,11 @@ export class Interpreter {
       ),
     });
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
-    // Builtins (eval, functions, wrappers) treat any fd-0 route as ownership,
-    // including one a persistent `exec <` set up earlier. External commands
-    // count only a pipeline or this command's own fd-0 replacement as direct
-    // input and otherwise fall back to the enclosing stdin. That fallback
-    // still differs from bash after an empty persistent `exec <` (bash: EOF).
-    const stdinRedirected = preparedRedirections.stdin !== undefined;
+    // An inherited descriptor shares its cursor. Only a replacement gives
+    // wrappers a temporary input binding to restore after their body.
+    const stdinRedirected = stdinProvided || preparedRedirections.stdinReplaced;
     const directStdinProvided =
-      stdinProvided ||
-      preparedRedirections.stdinReplaced ||
-      (stdinSourceFd >= 0 &&
-        this.ctx.state.fdInputSessions?.has(stdinSourceFd) === true);
+      stdinProvided || preparedRedirections.stdinReplaced || stdinSourceFd >= 0;
     if (preparedRedirections.stdin !== undefined) {
       stdin = preparedRedirections.stdin;
     }
@@ -1117,6 +1152,17 @@ export class Interpreter {
     let cmdResult: ExecResult;
     let controlFlowError: BreakError | ContinueError | null = null;
 
+    const commandEndpoints = bindOutputEndpoints(
+      this.ctx,
+      preparedRedirections.outputRoutes,
+      Boolean(preparedRedirections.outputFds?.length),
+    );
+    installOutputDescriptions(
+      this.ctx,
+      preparedRedirections.outputFds ?? [],
+      commandEndpoints,
+      preparedRedirections.standardFds,
+    );
     try {
       cmdResult = await this.runCommand(
         commandName,
@@ -1129,6 +1175,8 @@ export class Interpreter {
         stdinRedirected,
         directStdinProvided,
         preparedRedirections.stdinUnavailable,
+        commandPipeOutputs(this.ctx, preparedRedirections.outputRoutes),
+        commandEndpoints,
       );
     } catch (error) {
       // For break/continue, we still need to apply redirections before propagating
@@ -1256,11 +1304,28 @@ export class Interpreter {
     stdinRedirected = false,
     stdinProvided = false,
     stdinUnavailable = false,
+    pipeOutputs?: PipeCommandOutputs,
+    commandEndpoints?: OutputEndpoints,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
+      pipeOutputs,
+      commandEndpoints,
       runCommand: (name, a, qa, s, sf, udp, ssf, sr, sp, sd) =>
-        this.runCommand(name, a, qa, s, sf, udp, ssf, sr, sp, sd),
+        this.runCommand(
+          name,
+          a,
+          qa,
+          s,
+          sf,
+          udp,
+          ssf,
+          sr,
+          sp,
+          sd,
+          pipeOutputs,
+          commandEndpoints,
+        ),
       buildExportedEnv: () => this.buildExportedEnv(),
       executeUserScript: (path, a, s) => this.executeUserScript(path, a, s),
     };

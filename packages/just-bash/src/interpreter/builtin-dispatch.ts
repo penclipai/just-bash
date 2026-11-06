@@ -1,7 +1,10 @@
 import { waitForShellJobs } from "./background-wait.js";
+import { BrokenPipeError } from "./byte-pipe.js";
 import { createCommandByteIO } from "./command-byte-io.js";
 import { createCommandInput } from "./command-input.js";
+import { executeCommandChild } from "./custom-command-exec.js";
 import { missingCommandHint } from "./missing-command-hints.js";
+import { type PipeCommandOutputs, writePipeOutput } from "./pipe-endpoints.js";
 import { automaTrapBuiltin } from "./traps.js";
 /**
  * Builtin Command Dispatch
@@ -77,6 +80,7 @@ import {
   ExecutionLimitError,
   ExitError,
 } from "./errors.js";
+import { synchronizeFdValues } from "./fd-table.js";
 import { callFunction } from "./functions.js";
 import { setArrayElement } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
@@ -468,6 +472,8 @@ export type ExecuteUserScriptFn = (
  * Dispatch context containing dependencies needed for builtin dispatch
  */
 export interface BuiltinDispatchContext {
+  pipeOutputs?: PipeCommandOutputs;
+  commandEndpoints?: import("./output-endpoints.js").OutputEndpoints;
   ctx: InterpreterContext;
   runCommand: RunCommandFn;
   buildExportedEnv: BuildExportedEnvFn;
@@ -908,12 +914,18 @@ export async function executeExternalCommand(
   // ownership can be preserved across every nested execution path.
   const commandStdinProvided =
     stdinProvided || stdinUnavailable || stdin.length > 0;
-  const effectiveStdin = unsafeBytesFromLatin1(
+  let effectiveStdin = unsafeBytesFromLatin1(
     commandStdinProvided ? stdin : ctx.state.groupStdin || "",
   );
   let stdinAccessed = false;
   let inheritedInputSession: SharedInputSession | undefined;
   const liveInput = ctx.state.fdInputSessions?.get(stdinSourceFd);
+  const bufferedExtension =
+    cmd.internalIsExtension && !cmd.streamingStdin && liveInput?.readMore;
+  if (bufferedExtension) {
+    while (await liveInput.readMore?.(ctx.state.signal)) {}
+    effectiveStdin = unsafeBytesFromLatin1(liveInput.remaining);
+  }
   const input = createCommandInput(
     effectiveStdin,
     liveInput,
@@ -958,6 +970,17 @@ export async function executeExternalCommand(
         ctx.limits.maxArrayElements,
         commandName,
       );
+      const pipe = dispatchCtx.pipeOutputs?.[stream];
+      if (pipe) {
+        await writePipeOutput(
+          pipe,
+          text,
+          kind,
+          ctx.executionScope,
+          ctx.state.signal,
+        );
+        return;
+      }
       streamed ??= new ExecutionOutputAccumulator(
         ctx.executionScope,
         commandName,
@@ -1033,14 +1056,39 @@ export async function executeExternalCommand(
     executionScope: cmd.internalIsExtension
       ? createCommandExecutionBudget(ctx.executionScope, ctx.output)
       : ctx.executionScope,
-    exec: (script, options) => ctx.execFn(script, options, false),
+    exec: (script, options) =>
+      executeCommandChild(
+        ctx,
+        Boolean(cmd.internalIsExtension && ctx.state.automaPipelineActive),
+        script,
+        options,
+        false,
+        undefined,
+        dispatchCtx.commandEndpoints,
+      ),
     execWithInheritedStdin: async (script, options) => {
       // An unredirected empty wrapper does not own an input description.
       if (!commandStdinProvided && latin1FromBytes(effectiveStdin).length === 0)
-        return ctx.execFn(script, options, true);
+        return executeCommandChild(
+          ctx,
+          Boolean(cmd.internalIsExtension && ctx.state.automaPipelineActive),
+          script,
+          options,
+          true,
+          undefined,
+          dispatchCtx.commandEndpoints,
+        );
       inheritedInputSession ??= liveInput?.readMore ? liveInput : input.session;
       try {
-        return await ctx.execFn(script, options, true, inheritedInputSession);
+        return await executeCommandChild(
+          ctx,
+          Boolean(cmd.internalIsExtension && ctx.state.automaPipelineActive),
+          script,
+          options,
+          true,
+          inheritedInputSession,
+          dispatchCtx.commandEndpoints,
+        );
       } finally {
         if (!commandStdinProvided)
           ctx.state.groupStdin = inheritedInputSession.remaining;
@@ -1050,7 +1098,10 @@ export async function executeExternalCommand(
     getRegisteredCommands: () => Array.from(ctx.commands.keys()),
     sleep: ctx.sleep,
     trace: ctx.trace,
-    fileDescriptors: ctx.state.fileDescriptors,
+    get fileDescriptors() {
+      synchronizeFdValues(ctx);
+      return ctx.state.fileDescriptors;
+    },
     xpgEcho: ctx.state.shoptOptions.xpg_echo,
     coverage: ctx.coverage,
     signal: ctx.state.signal,
@@ -1058,7 +1109,11 @@ export async function executeExternalCommand(
     jsBootstrapCode: ctx.jsBootstrapCode,
     invokeTool: ctx.invokeTool,
   };
-  cmdCtx.byteIO = createCommandByteIO(cmdCtx, input.reader);
+  cmdCtx.byteIO = createCommandByteIO(
+    cmdCtx,
+    input.reader,
+    dispatchCtx.pipeOutputs,
+  );
   const originalCommand = (cmd as RuntimeCommand).internalOriginalCommand;
   let revokeOriginalCommandContext = () => {};
   if (originalCommand) {
@@ -1123,6 +1178,7 @@ export async function executeExternalCommand(
       ? // Trusted host-extension commands may opt in to unrestricted globals.
         await DefenseInDepthBox.runTrustedAsync(runBoundedCommand)
       : await runBoundedCommand();
+    if (bufferedExtension && stdinAccessed) liveInput.remaining = "";
     if (commandResult.internalStdinConsumed !== undefined)
       input.reconcileConsumed(commandResult.internalStdinConsumed);
     return {
@@ -1142,6 +1198,7 @@ export async function executeExternalCommand(
     };
   } catch (error) {
     streamed?.prependTo(error);
+    if (error instanceof BrokenPipeError) throw error;
     // ExecutionLimitError must propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
       throw error;

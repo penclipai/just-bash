@@ -1,10 +1,10 @@
-import { ShellJobs } from "./interpreter/shell-jobs.js";
 import { utf8ByteLength } from "./encoding.js";
 import { accountOutputSegments } from "./execution-output.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "./interpreter/errors.js";
+import { ShellJobs } from "./interpreter/shell-jobs.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { createOutputSink } from "./output-sink.js";
 import { _clearFiniteTimeout, _setTimeoutIfFinite } from "./timers.js";
@@ -68,6 +68,9 @@ export class ExecutionScope {
   get failure(): ExecutionLimitError | ExecutionAbortedError | undefined {
     return this.poisoned;
   }
+  get isClosed(): boolean {
+    return this.closed;
+  }
   private closed = false;
   private readonly startedAt = Date.now();
 
@@ -76,9 +79,15 @@ export class ExecutionScope {
     return Math.max(0, this.limits.maxLiveBytes - this.liveBytes);
   }
 
-  /** Snapshot used to prove accounting inherited from a nested execution. */
+  /** Output currently retained by final results and unread pipe blocks. */
   get outputBytesUsed(): number {
     return this.outputBytes;
+  }
+
+  private admittedOutputBytes = 0;
+  /** Admission only advances, even when concurrent readers release pipe bytes. */
+  get outputBytesAdmitted(): number {
+    return this.admittedOutputBytes;
   }
 
   constructor(
@@ -261,7 +270,18 @@ export class ExecutionScope {
       );
     }
     const unaccounted = bytes - alreadyAccountedBytes;
-    if (unaccounted > this.limits.maxOutputSize - this.outputBytes) {
+    this.chargeOutputBytes(unaccounted, site);
+    return bytes;
+  }
+
+  /** Internal pipe admission; consumers refund only through the private helper. */
+  chargeOutputBytes(bytes: number, site: string): void {
+    this.assertUsable();
+    if (
+      !Number.isSafeInteger(bytes) ||
+      bytes < 0 ||
+      bytes > this.limits.maxOutputSize - this.outputBytes
+    ) {
       this.fail(
         new ExecutionLimitError(
           `${site}: total output size exceeded (>${this.limits.maxOutputSize} bytes), increase executionLimits.maxOutputSize`,
@@ -269,8 +289,8 @@ export class ExecutionScope {
         ),
       );
     }
-    this.outputBytes += unaccounted;
-    return bytes;
+    this.outputBytes += bytes;
+    this.admittedOutputBytes += bytes;
   }
 
   accountResult(
@@ -375,6 +395,7 @@ export class ExecutionScope {
   }
 
   throwIfAborted(site = "execution"): void {
+    if (this.poisoned) throw this.poisoned;
     if (this.signal?.aborted) {
       this.fail(new ExecutionAbortedError("", `bash: ${site} aborted\n`));
     }

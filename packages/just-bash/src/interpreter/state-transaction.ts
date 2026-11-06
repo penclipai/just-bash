@@ -1,6 +1,15 @@
-import { cloneFdAliases } from "./fd-table.js";
+import {
+  releaseDescription,
+  retainDescription,
+} from "./description-lifetime.js";
+import { cloneFdAliases, shareFdDescriptions } from "./fd-table.js";
 import { cloneArrays } from "./helpers/array.js";
-import type { CompletionSpec, InterpreterState, ShellArray } from "./types.js";
+import type {
+  CompletionSpec,
+  InterpreterContext,
+  InterpreterState,
+  ShellArray,
+} from "./types.js";
 
 function cloneCompletionSpec(
   spec: CompletionSpec | undefined,
@@ -64,6 +73,7 @@ function cloneLocalVarStack(
  * remain shared with the parent execution.
  */
 export function beginIsolatedShellState(state: InterpreterState): () => void {
+  shareFdDescriptions({ state } as InterpreterContext);
   const saved = {
     env: state.env,
     fileCreationMask: state.fileCreationMask,
@@ -121,6 +131,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     completionSpecs: state.completionSpecs,
     defaultCompletionSpec: state.defaultCompletionSpec,
     emptyCompletionSpec: state.emptyCompletionSpec,
+    processSubstitutions: state.processSubstitutions,
     groupStdin: state.groupStdin,
     groupStdinSourceFd: state.groupStdinSourceFd,
     bashPid: state.bashPid,
@@ -142,9 +153,13 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   state.fdInputSessions = state.fdInputSessions
     ? new Map(state.fdInputSessions)
     : undefined;
+  for (const session of state.fdInputSessions?.values() ?? [])
+    retainDescription(session);
   state.fdOutputEndpoints = state.fdOutputEndpoints
     ? new Map(state.fdOutputEndpoints)
     : undefined;
+  for (const endpoint of state.fdOutputEndpoints?.values() ?? [])
+    retainDescription(endpoint);
   state.deviceFds = state.deviceFds ? new Set(state.deviceFds) : undefined;
   state.fdAliases = cloneFdAliases(state.fdAliases);
   state.closedStandardFds = state.closedStandardFds
@@ -183,6 +198,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     ? new Set(state.accessedTempEnvVars)
     : undefined;
   state.functions = new Map(state.functions);
+  state.processSubstitutions = state.processSubstitutions?.slice();
   state.callLineStack = state.callLineStack
     ? [...state.callLineStack]
     : undefined;
@@ -204,6 +220,10 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   return () => {
     if (restored) return;
     restored = true;
+    for (const endpoint of state.fdOutputEndpoints?.values() ?? [])
+      releaseDescription(endpoint);
+    for (const session of state.fdInputSessions?.values() ?? [])
+      releaseDescription(session);
     Object.assign(state, saved);
   };
 }

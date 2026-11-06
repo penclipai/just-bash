@@ -5,6 +5,7 @@ import {
   backgroundStateBytes,
   cloneBackgroundState,
 } from "./background-state.js";
+import { releaseOwnedDescriptors } from "./descriptor-state.js";
 import { ErrexitError, ExitError } from "./errors.js";
 import { getFdEntry } from "./fd-table.js";
 import { OK } from "./helpers/result.js";
@@ -73,9 +74,11 @@ export function launchBackgroundStatement(
                 internalOutputAccounting: error.internalOutputAccounting,
               };
             }
+            releaseOwnedDescriptors(state);
             await ctx.executionScope.shellJobs.wait(pid);
             return result;
           } finally {
+            releaseOwnedDescriptors(state);
             inherited?.release();
           }
         };

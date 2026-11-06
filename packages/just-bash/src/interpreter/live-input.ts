@@ -6,6 +6,13 @@ import type { CommandExecOptions } from "../types.js";
 import { ExecutionAbortedError, ExecutionLimitError } from "./errors.js";
 import type { SharedInputSession } from "./types.js";
 
+const closers = new WeakMap<SharedInputSession, () => Promise<void>>();
+
+/** Release a live descriptor after its final namespace reference closes. */
+export function closeLiveInput(session: SharedInputSession): Promise<void> {
+  return closers.get(session)?.() ?? Promise.resolve();
+}
+
 /** One open input description shared by fd aliases and nested shells. */
 export function createLiveInput(
   source: NonNullable<CommandExecOptions["stdinSource"]>,
@@ -21,7 +28,7 @@ export function createLiveInput(
         readers: number;
       }
     | undefined;
-  scope.registerCleanup(() => pending?.controller.abort());
+  const unregister = scope.registerCleanup(() => pending?.controller.abort());
   const session: SharedInputSession = {
     remaining: "",
     async readMore(readerSignal) {
@@ -67,6 +74,7 @@ export function createLiveInput(
           scope.throwIfAborted("stdin");
           if (chunk === null) {
             ended = true;
+            if (!scope.isClosed) unregister();
             return false;
           }
           scope.consumeInput(chunk.byteLength, "stdin");
@@ -99,5 +107,13 @@ export function createLiveInput(
       }
     },
   };
+  closers.set(session, async () => {
+    ended = true;
+    const active = pending;
+    active?.controller.abort();
+    if (!scope.isClosed) unregister();
+    if (active) await active.promise.catch(() => {});
+    session.remaining = "";
+  });
   return session;
 }
