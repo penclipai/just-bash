@@ -1,5 +1,6 @@
 import { assertDefenseContext } from "../security/defense-context.js";
 import type { RuntimeCommandContext } from "../types.js";
+import { guardByteReader, guardCommandByteIO } from "./byte-io-defense.js";
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return (
@@ -174,6 +175,18 @@ function wrapFileSystem(
       "fs.utimes",
     ),
   };
+  const openByteReader = fs.openByteReader?.bind(fs);
+  if (openByteReader) {
+    wrappedFs.openByteReader = wrapFunction(
+      async (path: string) =>
+        guardByteReader(await openByteReader(path), (fn, phase) =>
+          wrapFunction(fn, requireDefenseContext, component, phase),
+        ),
+      requireDefenseContext,
+      component,
+      "fs.openByteReader",
+    );
+  }
 
   if (fs.readdirWithFileTypes) {
     wrappedFs.readdirWithFileTypes = wrapFunction(
@@ -234,6 +247,10 @@ export function createDefenseAwareCommandContext(
       "writeOutput",
     );
   }
+  if (ctx.byteIO)
+    wrappedCtx.byteIO = guardCommandByteIO(ctx.byteIO, (fn, phase) =>
+      wrapFunction(fn, ctx.requireDefenseContext, component, phase),
+    );
 
   if (ctx.exec) {
     wrappedCtx.exec = wrapFunction(

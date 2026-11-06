@@ -1,5 +1,6 @@
 import { outputSegments, outputSize } from "../execution-output.js";
 import { writeOutputFile } from "../fs/output-write.js";
+import { inheritOutputOrigin } from "../output-provenance.js";
 import type { OutputSegment } from "../types.js";
 import {
   COMPOUND_OUTPUT_ROUTES,
@@ -117,6 +118,10 @@ type PreparedDupSource = {
 type RedirectSink =
   | { kind: "live-stdout" }
   | { kind: "live-stderr" }
+  | {
+      kind: "endpoint";
+      endpoint: import("./output-endpoints.js").OutputEndpoint;
+    }
   | { kind: "file"; path: string; append: boolean }
   | {
       kind: "descriptor";
@@ -131,6 +136,7 @@ type OutputFdEntry = Extract<FdEntry, { kind: "output" | "dup-out" }>;
 function descriptorSink(source: PreparedDupSource, fd: 1 | 2): RedirectSink {
   const { entry } = source;
   if (entry.kind === "dup-out") {
+    if (entry.endpoint) return { kind: "endpoint", endpoint: entry.endpoint };
     if (entry.sourceFd === 1) return { kind: "live-stdout" };
     if (entry.sourceFd === 2) return { kind: "live-stderr" };
   }
@@ -523,10 +529,22 @@ async function prepareRedirectionsWithState(
   const getPreparedDupSource = (
     sourceFd: number,
     input: boolean,
+    captureLive = false,
   ): PreparedDupSource | null => {
     if (sourceFd < FIRST_USER_FD) {
-      const entry = standardRoutes.get(sourceFd);
+      let entry = standardRoutes.get(sourceFd);
       if (entry?.kind === "closed") return null;
+      if (
+        (captureLive || transaction.policy === "persistent") &&
+        entry?.kind === "dup-out" &&
+        !entry.endpoint
+      ) {
+        const stream = entry.sourceFd === 1 ? "stdout" : "stderr";
+        const endpoint = ctx.outputEndpoints?.[stream];
+        const captured = ctx.output?.captureStream(stream);
+        if (endpoint && !endpoint.stream) entry = { ...entry, endpoint };
+        else if (captured) entry = { ...entry, endpoint: captured };
+      }
       return {
         kind: "entry",
         entry: entry as FdEntry,
@@ -649,6 +667,7 @@ async function prepareRedirectionsWithState(
         const source = getPreparedDupSource(
           plannedDuplicate.sourceFd,
           redir.operator === "<&",
+          true,
         );
         if (!source) {
           return fail(
@@ -694,6 +713,7 @@ async function prepareRedirectionsWithState(
           const source = getPreparedDupSource(
             parsed.sourceFd,
             redir.operator === "<&",
+            true,
           );
           if (!source) {
             return fail(
@@ -786,6 +806,7 @@ async function prepareRedirectionsWithState(
         const source = getPreparedDupSource(
           plannedDuplicate.sourceFd,
           redir.operator === "<&",
+          true,
         );
         if (!source) {
           return fail(
@@ -824,6 +845,7 @@ async function prepareRedirectionsWithState(
         const source = getPreparedDupSource(
           parsed.sourceFd,
           redir.operator === "<&",
+          true,
         );
         if (!source) {
           return fail(
@@ -1374,6 +1396,7 @@ export async function applyRedirections(
   // past the window, picking binary and truncating downstream codepoints
   // to their low byte.
   const { stdout: fd1Sink, stderr: fd2Sink } = outputRoutes;
+  let routedSource = result;
 
   // Deliver content still held in the streams to each fd's final sink.
   // "live-stdout" / "live-stderr" mean the caller's own streams as they were
@@ -1392,6 +1415,7 @@ export async function applyRedirections(
     stderr = "";
     const closed = (sink: RedirectSink) =>
       sink.kind === "invalid-output" ||
+      (sink.kind === "endpoint" && sink.endpoint.closed) ||
       (sink.kind === "live-stdout" && ctx.outputEndpoints?.stdout?.closed) ||
       (sink.kind === "live-stderr" && ctx.outputEndpoints?.stderr?.closed);
     if (closed(fd1Sink) && pendingStdout !== "") {
@@ -1428,15 +1452,21 @@ export async function applyRedirections(
     };
     // Automa: route each original text/byte segment through the resolved fd sinks.
     const written = new Set<object>();
-    for (const [stream, content, kind] of outputSegments({
-      ...result,
-      stdout: pendingStdout,
-      stderr: pendingStderr,
-    })) {
+    if (pendingStdout !== result.stdout || pendingStderr !== result.stderr)
+      routedSource = {
+        ...result,
+        stdout: pendingStdout,
+        stderr: pendingStderr,
+      };
+    for (const segment of outputSegments(routedSource)) {
+      const [stream, content, kind] = segment;
       const sink = stream === "stdout" ? fd1Sink : fd2Sink;
       const encoding = kind === "bytes" ? "binary" : "utf8";
       if (!content) continue;
       switch (sink.kind) {
+        case "endpoint":
+          await sink.endpoint.write(content, kind ?? "text", segment);
+          break;
         case "live-stdout":
         case "live-stderr": {
           const source = sink.kind === "live-stdout" ? "stdout" : "stderr";
@@ -1447,7 +1477,7 @@ export async function applyRedirections(
             const target = endpoint?.stream ?? source;
             if (target === "stdout") stdout += content;
             else stderr += content;
-            routed.push([target, content, kind]);
+            routed.push(inheritOutputOrigin(segment, [target, content, kind]));
           }
           break;
         }
@@ -1489,7 +1519,7 @@ export async function applyRedirections(
 
   const finalResult = makeResult(stdout, stderr, exitCode);
   ctx.output?.route(
-    result,
+    routedSource,
     resolveEndpointRoute(ctx, fd1Sink),
     resolveEndpointRoute(ctx, fd2Sink),
   );

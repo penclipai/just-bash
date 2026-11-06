@@ -64,9 +64,29 @@ Automa still owns its COW filesystem, revocable network/crypto capabilities,
 Worker lifecycle and browser integration tests. Nothing here grants native
 process execution or enables Python/JavaScript in Automa's Shell.
 
-Live-stream descriptor aliases can still follow a nested standard-stream
-capture target. This existing collector-identity limitation is separate from
-the RW file-description identity repair.
+Live-stream descriptor aliases retain the original collector and its lifetime
+across nested redirection, command substitution, pipelines, duplication and
+background tasks. A closed collector rejects further writes. Already-presented
+terminal streams carry private result provenance so they are decoded once.
+
+## Byte I/O foundation
+
+`RuntimeCommandContext.byteIO` exposes bounded byte readers and writers over the
+existing standard descriptions. Legacy reads and byte reads share the input
+cursor, including live input and partial reads. Command revocation covers nested
+byte capabilities. Writers drain accepted work before close or abort returns.
+
+The optional `IFileSystem.openByteReader` capability supports 64 KiB reads and
+positional ranges; the owner retains permission, observation and close-proof
+checks. Plain cat and wc consume raw blocks; wc scans requested fields only and
+uses an authorized regular file's size for byte-only counts. Head and tail select
+file ranges before conversion while retaining full logical input admission.
+Owner proof checks can still read the source even for a size-only query.
+
+Sed uses an on-demand line cursor and counts all newlines only for last-line
+addresses. It retains the original interpreter, input admission and file effects.
+Pipelines retain buffered stage handoff; concurrent bounded pipe scheduling and
+operator fusion remain separate changes.
 
 Pi's selected find/grep tools pass the private `--automa-respect-ignore` option
 when filtering recursive results by glob. It prevents a positive glob from

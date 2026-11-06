@@ -25,6 +25,7 @@ import { writeOutputFile } from "../fs/output-write.js";
  */
 
 import { checkFdLimit } from "./helpers/result.js";
+import type { OutputEndpoint } from "./output-endpoints.js";
 import type { InterpreterContext, SharedInputSession } from "./types.js";
 
 /**
@@ -68,7 +69,7 @@ export type FdEntry =
       content: string;
       device?: boolean;
     }
-  | { kind: "dup-out"; sourceFd: number }
+  | { kind: "dup-out"; sourceFd: number; endpoint?: OutputEndpoint }
   | { kind: "dup-in"; sourceFd: number }
   | { kind: "closed" };
 
@@ -78,6 +79,7 @@ export type FdEntry =
  */
 interface FdSnapshotEntry {
   inputSession?: SharedInputSession;
+  outputEndpoint?: OutputEndpoint;
   raw: string | undefined;
   isInput: boolean;
   isDevice: boolean;
@@ -302,6 +304,10 @@ export function getFdEntry(
   }
   if (entry.kind === "readwrite")
     descriptionsFor(ctx).set(entry, ensureFdDescription(ctx, fd));
+  if (entry.kind === "dup-out") {
+    const endpoint = ctx.state.fdOutputEndpoints?.get(fd);
+    if (endpoint) entry = { ...entry, endpoint };
+  }
   return entry;
 }
 
@@ -344,6 +350,7 @@ export function setRawFd(
 ): void {
   leaveAliasGroup(ctx, fd);
   ctx.state.fdInputSessions?.delete(fd);
+  ctx.state.fdOutputEndpoints?.delete(fd);
   writeRawFd(ctx, fd, raw, isInput, isDevice);
 }
 
@@ -368,12 +375,17 @@ export function setFdEntry(
     ctx.state.fdAliases.set(fd, description);
     detachedDescriptionRaw.delete(description);
   }
+  if (entry.kind === "dup-out" && entry.endpoint) {
+    ctx.state.fdOutputEndpoints ??= new Map();
+    ctx.state.fdOutputEndpoints.set(fd, entry.endpoint);
+  }
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
   leaveAliasGroup(ctx, fd);
   ctx.state.fileDescriptors?.delete(fd);
   ctx.state.fdInputSessions?.delete(fd);
+  ctx.state.fdOutputEndpoints?.delete(fd);
   ctx.state.inputFds?.delete(fd);
   ctx.state.deviceFds?.delete(fd);
 }
@@ -390,6 +402,7 @@ export function dupFd(
   sourceFd: number,
 ): boolean {
   const inputSession = ctx.state.fdInputSessions?.get(sourceFd);
+  const outputEndpoint = ctx.state.fdOutputEndpoints?.get(sourceFd);
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
   if (fd === sourceFd) return true;
@@ -405,6 +418,10 @@ export function dupFd(
     ctx.state.fdInputSessions.set(fd, inputSession);
   }
   joinAliasGroup(ctx, fd, sourceFd);
+  if (outputEndpoint) {
+    ctx.state.fdOutputEndpoints ??= new Map();
+    ctx.state.fdOutputEndpoints.set(fd, outputEndpoint);
+  }
   return true;
 }
 
@@ -414,6 +431,7 @@ export function moveFd(
   sourceFd: number,
 ): boolean {
   const inputSession = ctx.state.fdInputSessions?.get(sourceFd);
+  const outputEndpoint = ctx.state.fdOutputEndpoints?.get(sourceFd);
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
   if (fd === sourceFd) return true;
@@ -425,6 +443,10 @@ export function moveFd(
   if (inputSession) {
     ctx.state.fdInputSessions ??= new Map();
     ctx.state.fdInputSessions.set(fd, inputSession);
+  }
+  if (outputEndpoint) {
+    ctx.state.fdOutputEndpoints ??= new Map();
+    ctx.state.fdOutputEndpoints.set(fd, outputEndpoint);
   }
   if (description) {
     description.add(fd);
@@ -565,6 +587,7 @@ export function rememberFd(
   snapshot.set(fd, {
     raw,
     inputSession: ctx.state.fdInputSessions?.get(fd),
+    outputEndpoint: ctx.state.fdOutputEndpoints?.get(fd),
     isInput: ctx.state.inputFds?.has(fd) === true,
     isDevice: ctx.state.deviceFds?.has(fd) === true,
     description,
@@ -599,7 +622,7 @@ export function restoreFds(
   if (!fds) return;
   for (const [
     fd,
-    { raw, isInput, isDevice, description, inputSession },
+    { raw, isInput, isDevice, description, inputSession, outputEndpoint },
   ] of snapshot) {
     if (raw === undefined) {
       closeFd(ctx, fd);
@@ -625,6 +648,10 @@ export function restoreFds(
       ctx.state.fdInputSessions ??= new Map();
       ctx.state.fdInputSessions.set(fd, inputSession);
     }
+    if (outputEndpoint) {
+      ctx.state.fdOutputEndpoints ??= new Map();
+      ctx.state.fdOutputEndpoints.set(fd, outputEndpoint);
+    }
     if (description) {
       description.add(fd);
       ctx.state.fdAliases ??= new Map();
@@ -645,6 +672,7 @@ export function attachInputSession(
   state.deviceFds = new Set(state.deviceFds);
   state.fdAliases = cloneFdAliases(state.fdAliases);
   state.fdInputSessions = new Map(state.fdInputSessions);
+  state.fdOutputEndpoints = new Map(state.fdOutputEndpoints);
   state.closedStandardFds = new Set(state.closedStandardFds);
   state.closedStandardFds.delete(0);
   setFdEntry(ctx, 0, { kind: "input", content: inputSession.remaining });

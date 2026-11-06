@@ -5,15 +5,40 @@ import {
   decodedTextFromResult as normalize,
   unsafeBytesFromLatin1,
 } from "./encoding.js";
-import { outputSegments as segments, outputSize } from "./execution-output.js";
+import { outputSize, outputSegments as segments } from "./execution-output.js";
 import type { ExecutionScope } from "./execution-scope.js";
 import type { InterpreterContext } from "./interpreter/types.js";
+import {
+  createOutputPresenter,
+  presentOutputSegments,
+} from "./output-presentation.js";
+import {
+  inheritOutputOrigin,
+  mergeOutputOrigins,
+  outputOrigin,
+  outputSupplement,
+} from "./output-provenance.js";
+import { markPresentedOutput } from "./presented-output.js";
 import type { ExecResult, OutputSegment } from "./types.js";
 
 export interface OutputSink {
+  /** Capture the destination now, independently of later command frames. */
+  captureStream(stream: Stream): {
+    readonly closed: boolean;
+    write(
+      text: string,
+      kind: "text" | "bytes",
+      origin?: OutputSegment,
+    ): Promise<void>;
+  };
   setCommandRoutes(routes: Record<Stream, { kind: string }>): void;
   commandWriter():
-    | ((text: string, stream: Stream, kind?: "text" | "bytes") => Promise<void>)
+    | ((
+        text: string,
+        stream: Stream,
+        kind?: "text" | "bytes",
+        origin?: OutputSegment,
+      ) => Promise<void>)
     | undefined;
   capture(
     ctx: InterpreterContext,
@@ -66,6 +91,7 @@ interface Part {
   stream: Stream;
   kind?: "text" | "bytes";
   emitted?: boolean;
+  origin?: OutputSegment;
 }
 const decode = (value: string) =>
   decodeBytesToUtf8(unsafeBytesFromLatin1(value));
@@ -82,6 +108,11 @@ export function createOutputSink(
   const aborted = () => scope.signal?.aborted || scope.shellJobs.signal.aborted;
   const chunks: string[] = [];
   const published = { stdout: [] as string[], stderr: [] as string[] };
+  let capturedWrites = false;
+  let trackPublished = false;
+  let finishing = false;
+  const publishedParts: OutputSegment[] = [];
+  const publicationLeases: import("./execution-scope.js").ResourceLease[] = [];
   let publication: Promise<void> = Promise.resolve();
   const writers: WriterPins = { count: 0, waiters: [] };
   const waitWriters = (pins: WriterPins) =>
@@ -92,73 +123,15 @@ export function createOutputSink(
     pins.count--;
     if (!pins.count) for (const resolve of pins.waiters.splice(0)) resolve();
   };
-  // Output is an ordered byte stream even when one UTF-8 character spans
-  // command/descriptor boundaries. Retain at most three undecided bytes; do
-  // not buffer completed output or decode each incomplete fragment separately.
-  let pending = "";
-  let pendingStream: Stream | undefined;
-  const width = (lead: number) =>
-    lead >= 0xc2 && lead <= 0xdf
-      ? 2
-      : lead >= 0xe0 && lead <= 0xef
-        ? 3
-        : lead >= 0xf0 && lead <= 0xf4
-          ? 4
-          : 0;
-  const continuation = (lead: number, position: number, byte: number) =>
-    byte >= 0x80 &&
-    byte <= 0xbf &&
-    (position !== 1 ||
-      ((lead !== 0xe0 || byte >= 0xa0) &&
-        (lead !== 0xed || byte <= 0x9f) &&
-        (lead !== 0xf0 || byte >= 0x90) &&
-        (lead !== 0xf4 || byte <= 0x8f)));
   async function publish(text: string, stream: Stream = "stdout") {
     if (!text || aborted()) return;
     chunks.push(text);
     published[stream].push(text);
     if (callback) await callback(text, stream);
   }
-  async function flushPending() {
-    const text = pending;
-    const stream = pendingStream;
-    pending = "";
-    pendingStream = undefined;
-    await publish(decode(text), stream);
-  }
-  async function write(text: string, stream: Stream) {
-    if (pending) {
-      const lead = pending.charCodeAt(0);
-      let consumed = 0;
-      while (
-        consumed < text.length &&
-        pending.length < width(lead) &&
-        continuation(lead, pending.length, text.charCodeAt(consumed))
-      )
-        pending += text[consumed++];
-      // An invalid continuation keeps the original decoder's byte fallback.
-      // A complete character is attributed to its first byte's descriptor.
-      if (pending.length === width(lead) || consumed < text.length)
-        await flushPending();
-      text = text.slice(consumed);
-      if (!text || aborted()) return;
-    }
-    let end = text.length;
-    for (let start = Math.max(0, end - 3); start < end; start++) {
-      const lead = text.charCodeAt(start);
-      const expected = width(lead);
-      if (!expected || end - start >= expected) continue;
-      let valid = true;
-      for (let at = start + 1; at < end; at++)
-        if (!continuation(lead, at - start, text.charCodeAt(at))) valid = false;
-      if (!valid) continue;
-      pending = text.slice(start);
-      pendingStream = stream;
-      end = start;
-      break;
-    }
-    await publish(decode(text.slice(0, end)), stream);
-  }
+  const presentation = createOutputPresenter(publish, aborted);
+  const flushPending = presentation.flush;
+  const write = presentation.writeBytes;
   function branch(
     initialMask = { stdout: false, stderr: false },
     initialFrame?: OutputFrame,
@@ -174,8 +147,10 @@ export function createOutputSink(
     let bufferedBatches = 0;
     function complete(parts: Part[], result: ExecResult) {
       if (!parts.length)
-        for (const [stream, text, kind] of segments(result))
-          parts.push({ text, stream, kind, emitted: false });
+        for (const origin of segments(result)) {
+          const [stream, text, kind] = origin;
+          parts.push({ text, stream, kind, emitted: false, origin });
+        }
       const joined = { stdout: "", stderr: "" };
       for (const part of parts) joined[part.stream] += part.text;
       for (const stream of ["stdout", "stderr"] as const) {
@@ -208,7 +183,13 @@ export function createOutputSink(
         const text = prefix
           ? value.slice(0, -previous.length)
           : value.slice(previous.length);
-        const part: Part = { text, stream, kind: "text", emitted: false };
+        const part: Part = {
+          text,
+          stream,
+          kind: "text",
+          emitted: false,
+          origin: outputSupplement(result, stream, text, Boolean(prefix)),
+        };
         if (prefix) parts.unshift(part);
         else parts.push(part);
       }
@@ -219,13 +200,15 @@ export function createOutputSink(
       hidden = mask,
       stream = part.stream,
       depth = current?.depth ?? 0,
+      destinations = captures,
+      targetPipeline = pipelineTarget,
     ) {
       const { text } = part;
       if (!text || part.emitted || aborted()) return;
-      for (const capture of captures) {
+      for (const capture of destinations) {
         const belongs = capture.pipeline
-          ? capture.pipeline === pipelineTarget
-          : !pipelineTarget || stream === "stderr";
+          ? capture.pipeline === targetPipeline
+          : !targetPipeline || stream === "stderr";
         if (
           belongs &&
           (stream !== "stdout" || depth <= capture.depth) &&
@@ -240,6 +223,16 @@ export function createOutputSink(
         }
       }
       if (hidden[stream]) return;
+      if (trackPublished && !finishing) {
+        scope.consumeWork(1, "published output segment");
+        publicationLeases.push(
+          scope.reserveBytes(96, "published output metadata"),
+        );
+        const retained: OutputSegment = [stream, text, part.kind ?? "text"];
+        if (part.origin) inheritOutputOrigin(part.origin, retained);
+        else outputOrigin(retained);
+        publishedParts.push(retained);
+      }
       part.emitted = true;
       counts[stream] += text.length;
       const operation = publication.then(async () => {
@@ -308,6 +301,47 @@ export function createOutputSink(
       };
     }
     return {
+      captureStream(stream) {
+        if (!trackPublished) {
+          trackPublished = true;
+          scope.registerCleanup(() => {
+            for (const lease of publicationLeases) lease.release();
+          });
+        }
+        const hidden = { ...(current?.hidden ?? mask) };
+        const depth = current?.depth ?? 0;
+        const destinations = [...captures];
+        const targetPipeline = pipelineTarget;
+        const collectors = destinations.filter((capture) =>
+          capture.pipeline
+            ? capture.pipeline === targetPipeline
+            : !targetPipeline || stream === "stderr",
+        );
+        return {
+          get closed() {
+            return (
+              released ||
+              (hidden[stream] &&
+                collectors.length > 0 &&
+                collectors.every((capture) => capture.closed))
+            );
+          },
+          async write(text, kind, origin) {
+            if (this.closed) throw new Error("Output destination is closed");
+            capturedWrites = true;
+            for (const capture of collectors)
+              if (!capture.closed) capture.background = true;
+            await emit(
+              { text, stream, kind, origin },
+              hidden,
+              stream,
+              depth,
+              destinations,
+              targetPipeline,
+            );
+          },
+        };
+      },
       fork(background = false) {
         if (background)
           for (const capture of captures) capture.background = true;
@@ -335,13 +369,14 @@ export function createOutputSink(
             text: string,
             stream: Stream,
             kind?: "text" | "bytes",
+            origin?: OutputSegment,
           ) => Promise<void>)
         | undefined {
         if (!current?.routes || bufferedBatches) return undefined;
         const frame = current;
         const routes = current.routes;
-        return async (text, stream, kind = "text") => {
-          const part: Part = { text, stream, kind };
+        return async (text, stream, kind = "text", origin) => {
+          const part: Part = { text, stream, kind, origin };
           frame.parts.push(part);
           const target = routes[stream].kind;
           if (target === "live-stdout")
@@ -454,6 +489,7 @@ export function createOutputSink(
         result: T,
       ): Promise<T & { output: string }> {
         await waitWriters(writers);
+        finishing = true;
         // A fatal command may have buffered partial stdout that never reached fd1
         // (for example an exhausted awk before a pipe). Keep it in stdout as
         // failure evidence; do not publish it as terminal output.
@@ -468,17 +504,35 @@ export function createOutputSink(
         });
         await publication;
         await flushPending();
-        return {
+        if (capturedWrites && result.executionFailure) {
+          const presented = await presentOutputSegments(
+            mergeOutputOrigins(segments(result), publishedParts),
+          );
+          return markPresentedOutput({
+            ...result,
+            ...presented,
+            stdoutKind: "text" as const,
+            stdoutEncoding: undefined,
+            internalOutputSegments: undefined,
+            output: chunks.join(""),
+          });
+        }
+        const usePublished =
+          (scope.shellJobs.used || capturedWrites) && !result.executionFailure;
+        const finalResult = {
           ...result,
-          ...(scope.shellJobs.used && !result.executionFailure
+          ...(usePublished
             ? {
                 stdout: published.stdout.join(""),
                 stderr: published.stderr.join(""),
+                stdoutKind: "text" as const,
+                stdoutEncoding: undefined,
                 internalOutputSegments: undefined,
               }
             : Object.create(null)),
           output: chunks.join(""),
         };
+        return usePublished ? markPresentedOutput(finalResult) : finalResult;
       },
     };
   }

@@ -6,6 +6,11 @@ import {
 import type { ExecutionScope } from "./execution-scope.js";
 import { prependRelayedErrorOutput } from "./interpreter/error-output.js";
 import { ControlFlowError } from "./interpreter/errors.js";
+import {
+  inheritOutputOrigin,
+  outputOrigin,
+  outputSupplement,
+} from "./output-provenance.js";
 import type { ExecResult, OutputSegment } from "./types.js";
 
 /**
@@ -31,7 +36,8 @@ export class ExecutionOutputAccumulator {
     chunk: string,
     alreadyAccountedBytes = 0,
     kind: "text" | "bytes" = "text",
-  ): void {
+    origin?: OutputSegment,
+  ): OutputSegment | undefined {
     let bytes: number;
     try {
       bytes = this.scope.appendOutput(
@@ -46,11 +52,15 @@ export class ExecutionOutputAccumulator {
       throw error;
     }
     if (chunk) {
-      this.internalOutputSegments.push([stream, chunk, kind]);
+      const segment: OutputSegment = [stream, chunk, kind];
+      if (origin) inheritOutputOrigin(origin, segment);
+      else outputOrigin(segment);
+      this.internalOutputSegments.push(segment);
       (stream === "stdout" ? this.stdoutChunks : this.stderrChunks).push(chunk);
     }
     if (stream === "stdout") this.stdoutBytes += bytes;
     else this.stderrBytes += bytes;
+    return chunk ? this.internalOutputSegments.at(-1) : undefined;
   }
 
   /**
@@ -71,10 +81,11 @@ export class ExecutionOutputAccumulator {
       stderr: result.internalOutputAccounting?.stderr ?? 0,
     };
     this.append("stdout", "", Math.min(credit.stdout, 0));
-    for (const [stream, text, kind] of outputSegments(result, stdout)) {
+    for (const segment of outputSegments(result, stdout)) {
+      const [stream, text, kind] = segment;
       const bytes = kind === "bytes" ? text.length : utf8ByteLength(text);
       const already = Math.min(credit[stream], bytes);
-      this.append(stream, text, already, kind);
+      this.append(stream, text, already, kind, segment);
       credit[stream] -= already;
     }
     this.append("stderr", "", credit.stderr);
@@ -112,11 +123,28 @@ export type OutputSource = Pick<
   | "stdoutEncoding"
   | "internalOutputSegments"
 >;
+const fallbackOrigins = new WeakMap<
+  OutputSource,
+  { stdout: string; stderr: string; kind: string; parts: OutputSegment[] }
+>();
 export function outputSegments(
   result: OutputSource,
   stdout: string = result.stdout,
 ): OutputSegment[] {
   if (!result.internalOutputSegments) {
+    const kind =
+      stdout === result.stdout &&
+      (result.stdoutKind === "bytes" || result.stdoutEncoding === "binary")
+        ? "bytes"
+        : "text";
+    const cached = fallbackOrigins.get(result);
+    if (
+      cached &&
+      cached.stdout === stdout &&
+      cached.stderr === result.stderr &&
+      cached.kind === kind
+    )
+      return cached.parts.map((part) => inheritOutputOrigin(part, [...part]));
     const parts: OutputSegment[] = [
       [
         "stdout",
@@ -128,11 +156,19 @@ export function outputSegments(
       ],
       ["stderr", result.stderr, "text"],
     ];
-    return parts.filter((part) => part[1]);
+    const retained = parts.filter((part) => part[1]);
+    for (const part of retained) outputOrigin(part);
+    fallbackOrigins.set(result, {
+      stdout,
+      stderr: result.stderr,
+      kind,
+      parts: retained,
+    });
+    return retained.map((part) => inheritOutputOrigin(part, [...part]));
   }
-  const parts: OutputSegment[] = result.internalOutputSegments.map((part) => [
-    ...part,
-  ]);
+  const parts: OutputSegment[] = result.internalOutputSegments.map((part) =>
+    inheritOutputOrigin(part, [...part]),
+  );
   if (stdout !== result.stdout) {
     for (const part of parts) {
       if (part[0] === "stdout" && part[2] === "bytes") {
@@ -159,8 +195,14 @@ export function outputSegments(
       const text = prefix
         ? value.slice(0, -included.length)
         : value.slice(included.length);
-      if (prefix) parts.unshift([stream, text, "text"]);
-      else parts.push([stream, text, "text"]);
+      const supplement = outputSupplement(
+        result,
+        stream,
+        text,
+        Boolean(prefix),
+      );
+      if (prefix) parts.unshift(supplement);
+      else parts.push(supplement);
     } else if (!value && included) {
       for (let i = parts.length - 1; i >= 0; i--)
         if (parts[i][0] === stream) parts.splice(i, 1);

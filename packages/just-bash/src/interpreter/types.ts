@@ -1,4 +1,4 @@
-import type { OutputEndpoints } from "./output-endpoints.js";
+import type { OutputEndpoint, OutputEndpoints } from "./output-endpoints.js";
 /**
  * Interpreter Types
  */
@@ -348,6 +348,8 @@ export interface IOState {
   inputFds?: Set<number>;
   /** Internal open-input identities; clones retain the shared read position. */
   fdInputSessions?: Map<number, SharedInputSession>;
+  /** Open output descriptions captured before later stream replacement. */
+  fdOutputEndpoints?: Map<number, OutputEndpoint>;
   /** Character-device metadata kept separate from public descriptor content. */
   deviceFds?: Set<number>;
   /**

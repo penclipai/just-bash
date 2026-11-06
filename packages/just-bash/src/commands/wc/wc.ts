@@ -1,16 +1,11 @@
-import {
-  type ByteString,
-  decodeBytesToUtf8,
-  latin1FromBytes,
-} from "../../encoding.js";
 import type {
   ExecResult,
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
-import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { readWcCounts } from "./read-counts.js";
 
 const wcHelp = {
   name: "wc",
@@ -59,14 +54,21 @@ export const wcCommand: RuntimeCommand = {
     const showThird = showBytes || showChars;
 
     // Read files
-    const readResult = await readFiles(ctx, files, {
-      cmdName: "wc",
-      stopOnError: false,
+    const readResult = await readWcCounts(ctx, files, {
+      lines: showLines,
+      words: showWords,
+      chars: showChars,
     });
 
     // If reading from stdin (no files), use simpler output
     if (files.length === 0) {
-      const stats = countStats(readResult.files[0].content, showChars);
+      if (!readResult.files.length)
+        return {
+          stdout: "",
+          stderr: readResult.stderr,
+          exitCode: readResult.exitCode,
+        };
+      const stats = readResult.files[0].stats;
       return {
         stdout: `${formatStats(stats, showLines, showWords, showThird, "", 0)}\n`,
         stderr: "",
@@ -83,8 +85,7 @@ export const wcCommand: RuntimeCommand = {
     let totalWords = 0;
     let totalThird = 0;
 
-    for (const { filename, content } of readResult.files) {
-      const stats = countStats(content, showChars);
+    for (const { filename, stats } of readResult.files) {
       totalLines += stats.lines;
       totalWords += stats.words;
       totalThird += stats.third;
@@ -100,8 +101,7 @@ export const wcCommand: RuntimeCommand = {
         : 1;
     if (files.length > 1 || maxWidth > 0) {
       let totalBytes = 0;
-      for (const file of readResult.files)
-        totalBytes += latin1FromBytes(file.content).length;
+      for (const file of readResult.files) totalBytes += file.stats.bytes;
       maxWidth = Math.max(maxWidth, String(totalBytes).length);
     }
 
@@ -126,65 +126,6 @@ export const wcCommand: RuntimeCommand = {
     return { stdout, stderr: readResult.stderr, exitCode: readResult.exitCode };
   },
 };
-
-/**
- * Count line / word / third-column stats. The third column is bytes for
- * `-c` and Unicode codepoints for `-m`. Words and lines are byte-clean —
- * `\n` / whitespace are ASCII so they never collide with multibyte UTF-8
- * continuation or leading bytes.
- *
- * We use string `.length` for the byte count rather than UTF-8 re-encoding.
- * In the typical pipeline path each char represents one byte (latin1 shape)
- * so `.length` IS the byte count. In the rare path where an upstream
- * already decoded to Unicode, we accept that `-c` reports JS code units —
- * that matches real bash's `wc -c` byte count for ASCII / latin1 input,
- * preserves existing behavior for invalid-UTF-8 binary input that the
- * redirect layer mapped to U+FFFD, and stays consistent with the rest of
- * the pipeline's byte-shaped string semantics.
- */
-function countStats(
-  content: ByteString,
-  countCodepoints: boolean,
-): {
-  lines: number;
-  words: number;
-  third: number;
-} {
-  const bytes = latin1FromBytes(content);
-  const len = bytes.length;
-  const third = countCodepoints
-    ? Array.from(decodeBytesToUtf8(content)).length
-    : len;
-  let lines = 0;
-  let words = 0;
-  let inWord = false;
-
-  // Single pass through content to count lines and words
-  for (let i = 0; i < len; i++) {
-    const c = bytes[i];
-    if (c === "\n") {
-      lines++;
-      if (inWord) {
-        words++;
-        inWord = false;
-      }
-    } else if (c === " " || c === "\t" || c === "\r") {
-      if (inWord) {
-        words++;
-        inWord = false;
-      }
-    } else {
-      inWord = true;
-    }
-  }
-
-  // Count final word if content doesn't end with whitespace
-  if (inWord) {
-    words++;
-  }
-
-  return { lines, words, third };
-}
 
 function formatStats(
   stats: { lines: number; words: number; third: number },

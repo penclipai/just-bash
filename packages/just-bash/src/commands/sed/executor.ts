@@ -3,6 +3,7 @@
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex } from "../../regex/index.js";
 import { createStringBuilder } from "../../utils/string-builder.js";
+import type { SedLineSource } from "./line-source.js";
 import { breToEre, escapeForList, normalizeForJs } from "./sed-regex.js";
 import type {
   AddressRange,
@@ -876,7 +877,7 @@ function executeTransliterate(
 }
 
 export interface ExecuteContext {
-  lines: string[];
+  lines: SedLineSource;
   currentLineIndex: number;
 }
 
@@ -933,13 +934,12 @@ export function executeCommands(
         // The nCommandOutput mechanism handles the output properly
 
         if (
-          ctx &&
-          ctx.currentLineIndex + state.linesConsumedInCycle + 1 <
-            ctx.lines.length
+          ctx?.lines.has(ctx.currentLineIndex + state.linesConsumedInCycle + 1)
         ) {
           state.linesConsumedInCycle++;
-          const nextLine =
-            ctx.lines[ctx.currentLineIndex + state.linesConsumedInCycle];
+          const nextLine = ctx.lines.get(
+            ctx.currentLineIndex + state.linesConsumedInCycle,
+          );
           state.patternSpace = nextLine;
           state.lineNumber =
             ctx.currentLineIndex + state.linesConsumedInCycle + 1;
@@ -972,13 +972,12 @@ export function executeCommands(
       ) {
         state.coverage?.hit("sed:cmd:nextAppend");
         if (
-          ctx &&
-          ctx.currentLineIndex + state.linesConsumedInCycle + 1 <
-            ctx.lines.length
+          ctx?.lines.has(ctx.currentLineIndex + state.linesConsumedInCycle + 1)
         ) {
           state.linesConsumedInCycle++;
-          const nextLine =
-            ctx.lines[ctx.currentLineIndex + state.linesConsumedInCycle];
+          const nextLine = ctx.lines.get(
+            ctx.currentLineIndex + state.linesConsumedInCycle,
+          );
           state.patternSpace += `\n${nextLine}`;
           state.lineNumber =
             ctx.currentLineIndex + state.linesConsumedInCycle + 1;

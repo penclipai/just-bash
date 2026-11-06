@@ -1,3 +1,4 @@
+import type { ByteReader } from "../byte-io.js";
 import type { ByteString } from "../encoding.js";
 
 /**
@@ -175,6 +176,9 @@ export interface IFileSystem {
    * @throws Error if file doesn't exist or is a directory
    */
   readFileBuffer(path: string): Promise<Uint8Array>;
+
+  /** Optional bounded reader; permissions and observations belong to the FS. */
+  openByteReader?(path: string): Promise<ByteReader>;
 
   /**
    * Write content to a file, creating it if it doesn't exist

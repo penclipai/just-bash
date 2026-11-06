@@ -20,6 +20,7 @@ import {
   type ExecuteContext,
   executeCommands,
 } from "./executor.js";
+import { createSedLineSource, needsLastLine } from "./line-source.js";
 import { parseMultipleScripts } from "./parser.js";
 import type {
   RangeState,
@@ -99,12 +100,10 @@ async function processContent(
   // Track if input ended with newline - needed for preserving trailing newline behavior
   const inputEndsWithNewline = content.endsWith("\n");
 
-  const lines = content.split("\n");
-  if (lines.length > 0 && lines[lines.length - 1] === "") {
-    lines.pop();
-  }
-
-  const totalLines = lines.length;
+  const lines = createSedLineSource(content);
+  const totalLines = needsLastLine(commands)
+    ? lines.count()
+    : Number.MAX_SAFE_INTEGER;
   let output = "";
   let exitCode: number | undefined;
   // Track if the last output came from auto-print (to determine trailing newline behavior)
@@ -141,10 +140,10 @@ async function processContent(
       }
     : undefined;
 
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+  for (let lineIndex = 0; lines.has(lineIndex); lineIndex++) {
     const state: SedState = {
       ...createInitialState(totalLines, filename, rangeStates),
-      patternSpace: lines[lineIndex],
+      patternSpace: lines.get(lineIndex),
       holdSpace: holdSpace,
       lastPattern: lastPattern,
       lineNumber: lineIndex + 1,

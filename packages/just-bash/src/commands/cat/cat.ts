@@ -10,7 +10,9 @@ import { parseArgs } from "../../utils/args.js";
 import { accountFileInput } from "../../utils/file-reader.js";
 import { fsErrorMessage } from "../../utils/fs-error.js";
 import { readStdin } from "../../utils/read-stdin.js";
+import { withByteReader } from "../../utils/with-byte-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { copyByteInput } from "./copy-byte-input.js";
 
 const catHelp = {
   name: "cat",
@@ -115,6 +117,38 @@ export const catCommand: RuntimeCommand = {
     let stream = "";
     for (const file of inputs) {
       try {
+        if (
+          !transform &&
+          ctx.byteIO &&
+          (file === "-" || ctx.fs.openByteReader)
+        ) {
+          const reader =
+            file === "-"
+              ? ctx.byteIO.stdin
+              : await ctx.fs.openByteReader?.(
+                  ctx.fs.resolvePath(ctx.cwd, file),
+                );
+          if (reader) {
+            const writer = ctx.byteIO.stdout;
+            const copy = async () => {
+              if (stream) {
+                await ctx.writeOutput?.(stream, "stdout", "bytes");
+                stream = "";
+              }
+              return copyByteInput(
+                ctx,
+                reader,
+                writer,
+                aggregateInputBytes,
+                Math.min(maxOutputSize, ctx.limits.maxInputBytes),
+                file !== "-",
+              );
+            };
+            aggregateInputBytes =
+              file === "-" ? await copy() : await withByteReader(reader, copy);
+            continue;
+          }
+        }
         if (
           file === "-" &&
           !transform &&

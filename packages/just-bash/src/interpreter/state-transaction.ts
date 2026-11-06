@@ -79,6 +79,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     fileDescriptors: state.fileDescriptors,
     inputFds: state.inputFds,
     fdInputSessions: state.fdInputSessions,
+    fdOutputEndpoints: state.fdOutputEndpoints,
     deviceFds: state.deviceFds,
     fdAliases: state.fdAliases,
     closedStandardFds: state.closedStandardFds,
@@ -140,6 +141,9 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   state.inputFds = state.inputFds ? new Set(state.inputFds) : undefined;
   state.fdInputSessions = state.fdInputSessions
     ? new Map(state.fdInputSessions)
+    : undefined;
+  state.fdOutputEndpoints = state.fdOutputEndpoints
+    ? new Map(state.fdOutputEndpoints)
     : undefined;
   state.deviceFds = state.deviceFds ? new Set(state.deviceFds) : undefined;
   state.fdAliases = cloneFdAliases(state.fdAliases);

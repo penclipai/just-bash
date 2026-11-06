@@ -1,15 +1,15 @@
-import { getFdEntry } from "./fd-table.js";
 import type { StatementNode } from "../ast/types.js";
+import { serialize } from "../transform/serialize.js";
 import type { ExecResult } from "../types.js";
-import type { Interpreter } from "./interpreter.js";
-import type { InterpreterContext, InterpreterState } from "./types.js";
 import {
   backgroundStateBytes,
   cloneBackgroundState,
 } from "./background-state.js";
-import { serialize } from "../transform/serialize.js";
-import { ExitError, ErrexitError } from "./errors.js";
+import { ErrexitError, ExitError } from "./errors.js";
+import { getFdEntry } from "./fd-table.js";
 import { OK } from "./helpers/result.js";
+import type { Interpreter } from "./interpreter.js";
+import type { InterpreterContext, InterpreterState } from "./types.js";
 
 /** Admit before cloning, allocating descriptors or beginning child effects. */
 export function launchBackgroundStatement(
@@ -22,9 +22,13 @@ export function launchBackgroundStatement(
 ): ExecResult {
   // Shared extra input/RW descriptions do not yet have concurrent offset semantics.
   if (
-    [...(ctx.state.fileDescriptors?.keys() ?? [])].some(
-      (fd) => fd >= 3 || getFdEntry(ctx, fd)?.kind === "readwrite",
-    )
+    [...(ctx.state.fileDescriptors?.keys() ?? [])].some((fd) => {
+      const entry = getFdEntry(ctx, fd);
+      return (
+        entry?.kind === "readwrite" ||
+        (fd >= 3 && !(entry?.kind === "dup-out" && entry.endpoint))
+      );
+    })
   )
     return {
       stdout: "",

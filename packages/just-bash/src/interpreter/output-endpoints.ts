@@ -6,6 +6,7 @@ import {
 } from "../encoding.js";
 import type { ExecutionScope } from "../execution-scope.js";
 import { tryAppendOutputFile, writeOutputFile } from "../fs/output-write.js";
+import type { OutputSegment } from "../types.js";
 import { ExecutionAbortedError } from "./errors.js";
 import { writeFdEntry } from "./fd-table.js";
 import type { PreparedRedirections } from "./redirections.js";
@@ -15,7 +16,11 @@ export type OutputEndpoint = {
   readonly closed?: boolean;
   readonly stream?: "stdout" | "stderr";
   readonly path?: string;
-  write(text: string, kind: "text" | "bytes"): Promise<void>;
+  write(
+    text: string,
+    kind: "text" | "bytes",
+    origin?: OutputSegment,
+  ): Promise<void>;
 };
 export type OutputEndpoints = Partial<
   Record<"stdout" | "stderr", OutputEndpoint>
@@ -49,6 +54,10 @@ export function bindOutputEndpoints(
   const endpoints = new Map<object, OutputEndpoint>();
   for (const stream of ["stdout", "stderr"] as const) {
     const sink = routes[stream];
+    if (sink.kind === "endpoint") {
+      bound[stream] = sink.endpoint;
+      continue;
+    }
     if (sink.kind === "live-stdout" || sink.kind === "live-stderr") {
       const target = sink.kind === "live-stdout" ? "stdout" : "stderr";
       bound[stream] = ctx.outputEndpoints?.[target] ?? {

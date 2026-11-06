@@ -167,6 +167,7 @@ export function withUmaskFileSystem(
     },
   };
   if (fs.readFileBytes) facade.readFileBytes = fs.readFileBytes.bind(fs);
+  if (fs.openByteReader) facade.openByteReader = fs.openByteReader.bind(fs);
   if (fs.readdirWithFileTypes)
     facade.readdirWithFileTypes = fs.readdirWithFileTypes.bind(fs);
   if (fs.createExclusive) facade.createExclusive = fs.createExclusive.bind(fs);

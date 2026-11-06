@@ -206,6 +206,8 @@ export interface ShellJobSnapshot {
 }
 
 export interface RuntimeCommandContext {
+  /** Internal byte-block view over the same stdin/stdout/stderr descriptions. */
+  byteIO?: import("./byte-io.js").CommandByteIO;
   /** Immutable current shell and directly owned, unconsumed tasks. */
   getShellJobSnapshot?(): ShellJobSnapshot;
   /**

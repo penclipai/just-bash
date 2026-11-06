@@ -12,8 +12,10 @@ import {
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
+import { withByteReader } from "../../utils/with-byte-reader.js";
 import { unknownOption } from "../help.js";
 import { selectHeadTailBytes } from "./head-tail-bytes.js";
+import { selectFromByteReader } from "./head-tail-reader.js";
 
 export interface HeadTailOptions {
   lines: number;
@@ -177,18 +179,34 @@ export async function processHeadTailFiles(
       // Keep optional byte-string filesystems on their existing read path.
       // Byte-array filesystems convert only the selected output, after the
       // complete input has been admitted and charged below.
+      let selected: string | null = null;
+      let logicalSize = stat.size;
+      if (ctx.fs.openByteReader) {
+        const reader = await ctx.fs.openByteReader(filePath);
+        selected = await withByteReader(reader, async () => {
+          logicalSize = reader.size ?? stat.size;
+          if (logicalSize > ctx.limits.maxInputBytes - aggregateInput)
+            throw new ExecutionLimitError(
+              `${cmdName}: aggregate input size limit exceeded`,
+              "string_length",
+            );
+          return selectFromByteReader(reader, options, cmdName, ctx);
+        });
+      }
       const content =
-        typeof ctx.fs.readFileBytes === "function"
+        selected ??
+        (typeof ctx.fs.readFileBytes === "function"
           ? latin1FromBytes(await ctx.fs.readFileBytes(filePath))
-          : await ctx.fs.readFileBuffer(filePath);
-      if (content.length > ctx.limits.maxInputBytes - aggregateInput) {
+          : await ctx.fs.readFileBuffer(filePath));
+      const inputSize = selected === null ? content.length : logicalSize;
+      if (inputSize > ctx.limits.maxInputBytes - aggregateInput) {
         throw new ExecutionLimitError(
           `${cmdName}: aggregate input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
           "string_length",
         );
       }
-      aggregateInput += content.length;
-      ctx.executionScope?.consumeInput(content.length, cmdName);
+      aggregateInput += inputSize;
+      ctx.executionScope?.consumeInput(inputSize, cmdName);
 
       // Show header if needed - only after we know the file exists.
       // The whole result is marked binary, so the redirect/pipe glue writes
@@ -202,19 +220,21 @@ export async function processHeadTailFiles(
         stdout.append(latin1FromBytes(encodeUtf8ToBytes(`==> ${file} <==\n`)));
       }
       stdout.append(
-        typeof content === "string"
-          ? contentProcessor(content)
-          : latin1FromBytes(
-              bytesFromUint8Array(
-                selectHeadTailBytes(
-                  content,
-                  cmdName,
-                  options.lines,
-                  options.bytes,
-                  options.fromLine,
+        selected !== null
+          ? selected
+          : typeof content === "string"
+            ? contentProcessor(content)
+            : latin1FromBytes(
+                bytesFromUint8Array(
+                  selectHeadTailBytes(
+                    content,
+                    cmdName,
+                    options.lines,
+                    options.bytes,
+                    options.fromLine,
+                  ),
                 ),
               ),
-            ),
       );
       filesProcessed++;
     } catch (error) {

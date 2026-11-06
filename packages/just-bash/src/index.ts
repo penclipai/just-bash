@@ -1,4 +1,5 @@
 // AST types (for plugin authors)
+
 export type {
   CommandNode,
   PipelineNode,
@@ -14,6 +15,7 @@ export type {
   JavaScriptConfig,
 } from "./Bash.js";
 export { Bash } from "./Bash.js";
+export type { ByteReader, ByteWriter, CommandByteIO } from "./byte-io.js";
 export { parseFileMode } from "./commands/file-mode.js";
 export type {
   AllCommandName,

@@ -60,6 +60,7 @@ describeDefense("Defense context invariant", () => {
       lstat: true,
       mkdir: true,
       mv: true,
+      openByteReader: true,
       readFile: true,
       readFileBuffer: true,
       readFileBytes: true,

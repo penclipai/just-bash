@@ -1,5 +1,6 @@
 import { createLiveInput } from "./interpreter/live-input.js";
 import { createOutputSink } from "./output-sink.js";
+import { isPresentedOutput } from "./presented-output.js";
 import { BASH_VERSION, bashVersionInfo } from "./shell-metadata.js";
 /**
  * Bash - Bash Shell Environment
@@ -662,8 +663,10 @@ export class Bash {
     // for byte transparency. At the output boundary, we convert valid UTF-8
     // byte sequences back to proper Unicode characters (e.g., CJK, emoji).
     // Invalid UTF-8 (e.g., raw compressed data) is left as binary.
-    result.stdout = decodeBinaryToUtf8(result.stdout);
-    result.stderr = decodeBinaryToUtf8(result.stderr);
+    if (!isPresentedOutput(result)) {
+      result.stdout = decodeBinaryToUtf8(result.stdout);
+      result.stderr = decodeBinaryToUtf8(result.stderr);
+    }
     return result;
   }
 
