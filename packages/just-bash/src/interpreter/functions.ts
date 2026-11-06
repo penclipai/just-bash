@@ -10,18 +10,11 @@ import { automaTrapFunction } from "./traps.js";
 import type { FunctionDefNode } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { clearLocalVarStackForScope } from "./builtins/variable-assignment.js";
-import { ControlFlowError, ExitError, ReturnError } from "./errors.js";
+import { ExitError, ReturnError } from "./errors.js";
 import { cloneArray } from "./helpers/array.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import { POSIX_SPECIAL_BUILTINS } from "./helpers/shell-constants.js";
-import {
-  applyRedirections,
-  createRedirectionTransaction,
-  type PreparedRedirections,
-  preparedRedirectionError,
-  routeControlFlowError,
-  SIMPLE_REDIRECTION_POLICY,
-} from "./redirections.js";
+import { withPreparedRedirections } from "./redirections.js";
 import type { InterpreterContext } from "./types.js";
 
 export function executeFunctionDef(
@@ -211,49 +204,29 @@ async function callFunctionBody(
     ctx.state.callDepth--;
   };
 
-  let prepared: PreparedRedirections | null = null;
-  const redirectionTransaction = createRedirectionTransaction(
-    ctx,
-    func.redirections,
-    SIMPLE_REDIRECTION_POLICY,
-  );
   try {
-    prepared = await redirectionTransaction.prepare(stdin);
-    if (prepared.error) return preparedRedirectionError(prepared);
-    const effectiveStdin = prepared.stdin ?? stdin;
-    // The body owns fd 0 when anything gave the function one: a pipe or a
-    // redirection on the call (`f < file`), or one on the definition
-    // (`f() { …; } < file`). Empty content is still ownership — it means EOF,
-    // not "read the enclosing shell's stdin".
-    const stdinOwned =
-      stdinRedirected || prepared.stdin !== undefined || stdin !== "";
-    const execResult = await ctx.executeCommand(
-      func.body,
-      effectiveStdin,
-      stdinOwned,
-    );
-    // Apply output redirections from the function definition using pre-expanded targets
-    // e.g., fun() { echo hi; } 1>&2 should redirect output to stderr when called
-    return applyRedirections(
+    return await withPreparedRedirections(
       ctx,
-      execResult,
-      func.redirections.length > 0,
-      prepared.outputRoutes,
+      func.redirections,
+      stdin,
+      (prepared) =>
+        ctx.executeCommand(
+          func.body,
+          prepared.stdin ?? stdin,
+          stdinRedirected || prepared.stdin !== undefined || stdin !== "",
+        ),
+      stdinRedirected,
     );
   } catch (error) {
-    if (error instanceof ControlFlowError && prepared) {
-      await routeControlFlowError(ctx, error, func.redirections, prepared);
-      if (error instanceof ReturnError) {
-        return {
-          ...result(error.stdout, error.stderr, error.exitCode),
-          internalOutputSegments: error.internalOutputSegments,
-          internalOutputAccounting: error.internalOutputAccounting,
-        };
-      }
+    if (error instanceof ReturnError) {
+      return {
+        ...result(error.stdout, error.stderr, error.exitCode),
+        internalOutputSegments: error.internalOutputSegments,
+        internalOutputAccounting: error.internalOutputAccounting,
+      };
     }
     throw error;
   } finally {
-    redirectionTransaction.finish();
     cleanup();
   }
 }

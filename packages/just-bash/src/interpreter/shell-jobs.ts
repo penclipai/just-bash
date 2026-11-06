@@ -1,5 +1,5 @@
-import type { ExecutionScope, ResourceLease } from "../execution-scope.js";
 import { utf8ByteLength } from "../encoding.js";
+import type { ExecutionScope, ResourceLease } from "../execution-scope.js";
 import type { ExecResult, ShellJobSnapshot } from "../types.js";
 import { ExecutionAbortedError, ExecutionLimitError } from "./errors.js";
 import type { InterpreterState } from "./types.js";
@@ -109,7 +109,8 @@ export class ShellJobs {
         (job) => job.stat === "running",
       );
       if (!pending.length) {
-        if (this.fatal) throw this.fatal;
+        if (this.fatal)
+          throw this.signal.aborted ? this.signal.reason : this.fatal;
         return;
       }
       const settled = await Promise.allSettled(pending.map((job) => job.task));
@@ -119,7 +120,7 @@ export class ShellJobs {
         await Promise.allSettled(
           [...this.jobs.values()].map((job) => job.task),
         );
-        throw rejected.reason;
+        throw this.signal.reason;
       }
     }
   }

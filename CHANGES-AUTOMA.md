@@ -29,6 +29,7 @@ Automa records the exact fork commit, build inputs and artifact hashes in
 | browser byte conversion and conditional output append | `src/byte-string.ts`, `src/fs/output-write.ts`, output endpoints | Bounded Latin1 batches retain every byte and Node's native path; optional owner append preserves cursor, failure prefixes, umask, capture and writer order |
 | trap-builtin | Interpreter `traps.ts`, lifecycle and set/shopt/exit | Frozen GNU Bash fixtures, ERR/EXIT, Stop and failure unwinds; unsupported RETURN/DEBUG fail explicitly |
 | redirection-errno, directory globs, env inheritance | Interpreter redirections, `src/shell/glob.ts`, `src/Bash.ts` | COW-style EISDIR, trailing slash matching, `env ... bash -c` export inheritance |
+| inherited Shell input and output | Interpreter compound routing and shell builtin dispatch | Preserve ordered FD snapshots, fresh diagnostics, unspecified versus empty stdin, and shared parent/child input consumption |
 | re2-compiler | `scripts/patch-re2js-compiler.mjs`, locked `patches/re2js@1.3.3.patch` | Complete programs/capture order and rejections for 46 patterns, including a 256 KiB native stack |
 
 The RE2 change belongs to the separately versioned RE2JS dependency. Its generator

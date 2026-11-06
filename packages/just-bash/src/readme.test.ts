@@ -512,8 +512,8 @@ describe("AGENTS.npm.md Bash examples", () => {
           "---\ntitle: Blog Post\ntags:\n  - tech\n  - news\n---\n\n# Blog content\n",
         "/data/hugo-post.md":
           '+++\ntitle = "Hugo Post"\ndate = "2024-01-01"\ndraft = false\n+++\n\n# Hugo content\n',
-        "/src/app.ts": "// TODO: implement\nexport const x = 1;",
-        "/src/lib.ts": "// helper\nexport const y = 2;",
+        "/data/src/app.ts": "// TODO: implement\nexport const x = 1;",
+        "/data/src/lib.ts": "// helper\nexport const y = 2;",
         // Mock type definition files for "Discovering Types" examples
         "/data/node_modules/just-bash/dist/index.d.ts":
           'export { Bash } from "./Bash";\nexport type { BashOptions } from "./Bash";',

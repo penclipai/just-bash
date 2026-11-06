@@ -4,6 +4,7 @@ import {
   utf8ByteLength,
 } from "./encoding.js";
 import type { ExecutionScope } from "./execution-scope.js";
+import { prependRelayedErrorOutput } from "./interpreter/error-output.js";
 import { ControlFlowError } from "./interpreter/errors.js";
 import type { ExecResult, OutputSegment } from "./types.js";
 
@@ -103,7 +104,7 @@ export class ExecutionOutputAccumulator {
 }
 
 // Automa modifications: byte identity accompanies temporal fd ordering.
-type OutputSource = Pick<
+export type OutputSource = Pick<
   ExecResult,
   | "stdout"
   | "stderr"
@@ -183,14 +184,7 @@ export function prependOutputFrom(
   error: ControlFlowError,
   result: OutputSource,
 ): void {
-  const segments = [...outputSegments(result), ...outputSegments(error)];
-  // Automa: raw byte fragments are Latin-1 strings, not UTF-8 text. Preserve
-  // their already charged size while attaching them to a control-flow error.
-  error.stdout = result.stdout + error.stdout;
-  error.stderr = result.stderr + error.stderr;
-  error.internalOutputAccounting.stdout += outputSize(result, "stdout");
-  error.internalOutputAccounting.stderr += outputSize(result, "stderr");
-  error.internalOutputSegments = segments;
+  prependRelayedErrorOutput(error, result);
 }
 export function accountOutputSegments(
   scope: ExecutionScope,

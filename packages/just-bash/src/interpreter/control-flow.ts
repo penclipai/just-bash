@@ -28,7 +28,9 @@ import type {
 } from "../ast/types.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
+import { routeCompoundOutput } from "./compound-output.js";
 import { matchPattern } from "./conditionals.js";
+import { seedRelayedErrorOutput } from "./error-output.js";
 import {
   BreakError,
   ContinueError,
@@ -52,6 +54,7 @@ import {
   adoptLoopStatus,
   BREAK_CONTINUE_STATUS,
   handleLoopError,
+  type LoopErrorResult,
 } from "./helpers/loop.js";
 import { failure, throwExecutionLimit } from "./helpers/result.js";
 import {
@@ -113,10 +116,19 @@ class CompoundOutput {
   }
 
   /** Append output synthesized here rather than relayed from a child. */
-  appendUnaccounted(stdout: string, stderr: string): void {
-    this.ctx.executionScope.appendOutput("stdout", stdout, "control-flow");
-    this.ctx.executionScope.appendOutput("stderr", stderr, "control-flow");
-    this.append(stdout, stderr);
+  async appendUnaccounted(stdout: string, stderr: string): Promise<void> {
+    const routed = await routeCompoundOutput(
+      this.ctx,
+      { stdout, stderr, exitCode: 1 },
+      "fresh",
+    );
+    this.append(routed.stdout, routed.stderr, routed.internalOutputSegments);
+  }
+
+  failIterations(message: string): never {
+    const error = new ExecutionLimitError(message, "iterations");
+    prependOutputFrom(error, this);
+    throw error;
   }
 
   replace(stdout: string, stderr: string, parts?: OutputSegment[]): void {
@@ -152,6 +164,25 @@ class CompoundOutput {
   }
 }
 
+async function resolveLoopError(
+  ctx: InterpreterContext,
+  error: unknown,
+  output: CompoundOutput,
+): Promise<LoopErrorResult> {
+  const result = handleLoopError(
+    error,
+    output.stdout,
+    output.stderr,
+    ctx.state.loopDepth,
+    output.internalOutputSegments,
+  );
+  if (result.action === "error")
+    await output.appendUnaccounted("", `${getErrorMessage(error)}\n`);
+  else
+    output.replace(result.stdout, result.stderr, result.internalOutputSegments);
+  return result;
+}
+
 async function executeBoundedStatements(
   ctx: InterpreterContext,
   statements: StatementNode[],
@@ -179,7 +210,7 @@ async function executeBoundedStatements(
       prependOutputFrom(error, output);
       throw error;
     }
-    output.appendUnaccounted("", `${getErrorMessage(error)}\n`);
+    await output.appendUnaccounted("", `${getErrorMessage(error)}\n`);
     return output.build(1);
   }
   return output.build(exitCode);
@@ -240,7 +271,11 @@ async function executeForBody(
 
   // Validate variable name at runtime (matches bash behavior)
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(node.variable)) {
-    return failure(`bash: \`${node.variable}': not a valid identifier\n`);
+    return routeCompoundOutput(
+      ctx,
+      failure(`bash: \`${node.variable}': not a valid identifier\n`),
+      "fresh",
+    );
   }
 
   let words: string[] = [];
@@ -262,7 +297,11 @@ async function executeForBody(
     } catch (e) {
       if (e instanceof GlobError) {
         // failglob: return error with exit code 1
-        return { stdout: "", stderr: e.stderr, exitCode: 1 };
+        return routeCompoundOutput(
+          ctx,
+          { stdout: "", stderr: e.stderr, exitCode: 1 },
+          "fresh",
+        );
       }
       throw e;
     }
@@ -273,11 +312,8 @@ async function executeForBody(
     for (const value of words) {
       iterations++;
       if (iterations > ctx.limits.maxLoopIterations) {
-        throwExecutionLimit(
+        output.failIterations(
           `for loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
-          "iterations",
-          output.stdout,
-          output.stderr,
         );
       }
 
@@ -294,18 +330,7 @@ async function executeForBody(
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(
-          error,
-          output.stdout,
-          output.stderr,
-          ctx.state.loopDepth,
-          output.internalOutputSegments,
-        );
-        output.replace(
-          loopResult.stdout,
-          loopResult.stderr,
-          loopResult.internalOutputSegments,
-        );
+        const loopResult = await resolveLoopError(ctx, error, output);
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next
@@ -363,11 +388,8 @@ async function executeCStyleForBody(
     while (true) {
       iterations++;
       if (iterations > ctx.limits.maxLoopIterations) {
-        throwExecutionLimit(
+        output.failIterations(
           `for loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
-          "iterations",
-          output.stdout,
-          output.stderr,
         );
       }
 
@@ -394,18 +416,7 @@ async function executeCStyleForBody(
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(
-          error,
-          output.stdout,
-          output.stderr,
-          ctx.state.loopDepth,
-          output.internalOutputSegments,
-        );
-        output.replace(
-          loopResult.stdout,
-          loopResult.stderr,
-          loopResult.internalOutputSegments,
-        );
+        const loopResult = await resolveLoopError(ctx, error, output);
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next
@@ -475,11 +486,8 @@ async function executeWhileBody(
     while (true) {
       iterations++;
       if (iterations > ctx.limits.maxLoopIterations) {
-        throwExecutionLimit(
+        output.failIterations(
           `while loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
-          "iterations",
-          output.stdout,
-          output.stderr,
         );
       }
 
@@ -510,8 +518,7 @@ async function executeWhileBody(
           );
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
-            error.stdout = output.stdout;
-            error.stderr = output.stderr;
+            seedRelayedErrorOutput(error, output.build(0));
             ctx.state.inCondition = savedInCondition;
             throw error;
           }
@@ -524,8 +531,7 @@ async function executeWhileBody(
           );
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
-            error.stdout = output.stdout;
-            error.stderr = output.stderr;
+            seedRelayedErrorOutput(error, output.build(0));
             ctx.state.inCondition = savedInCondition;
             throw error;
           }
@@ -558,18 +564,7 @@ async function executeWhileBody(
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(
-          error,
-          output.stdout,
-          output.stderr,
-          ctx.state.loopDepth,
-          output.internalOutputSegments,
-        );
-        output.replace(
-          loopResult.stdout,
-          loopResult.stderr,
-          loopResult.internalOutputSegments,
-        );
+        const loopResult = await resolveLoopError(ctx, error, output);
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next
@@ -632,11 +627,8 @@ async function executeUntilBody(
     while (true) {
       iterations++;
       if (iterations > ctx.limits.maxLoopIterations) {
-        throwExecutionLimit(
+        output.failIterations(
           `until loop: too many iterations (${ctx.limits.maxLoopIterations}), increase executionLimits.maxLoopIterations`,
-          "iterations",
-          output.stdout,
-          output.stderr,
         );
       }
 
@@ -661,18 +653,7 @@ async function executeUntilBody(
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
-        const loopResult = handleLoopError(
-          error,
-          output.stdout,
-          output.stderr,
-          ctx.state.loopDepth,
-          output.internalOutputSegments,
-        );
-        output.replace(
-          loopResult.stdout,
-          loopResult.stderr,
-          loopResult.internalOutputSegments,
-        );
+        const loopResult = await resolveLoopError(ctx, error, output);
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next

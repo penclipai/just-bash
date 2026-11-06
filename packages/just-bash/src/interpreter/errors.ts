@@ -12,8 +12,8 @@
  * as they propagate through the execution stack.
  */
 
-import { utf8ByteLength } from "../encoding.js";
 import type { OutputSegment } from "../types.js";
+import { prependFreshErrorOutput } from "./error-output.js";
 
 /**
  * Base class for all control flow errors.
@@ -34,10 +34,7 @@ export abstract class ControlFlowError extends Error {
    * Prepend output from the current context before re-throwing.
    */
   prependOutput(stdout: string, stderr: string): void {
-    this.stdout = stdout + this.stdout;
-    this.stderr = stderr + this.stderr;
-    this.internalOutputAccounting.stdout += utf8ByteLength(stdout);
-    this.internalOutputAccounting.stderr += utf8ByteLength(stderr);
+    prependFreshErrorOutput(this, stdout, stderr);
   }
 }
 

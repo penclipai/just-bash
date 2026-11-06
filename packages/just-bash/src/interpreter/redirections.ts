@@ -1,11 +1,17 @@
+import { outputSegments, outputSize } from "../execution-output.js";
 import { writeOutputFile } from "../fs/output-write.js";
+import type { OutputSegment } from "../types.js";
+import {
+  COMPOUND_OUTPUT_ROUTES,
+  type CompoundOutputPolicy,
+  routeCompoundOutput,
+} from "./compound-output.js";
+import { resolveErrorOutput, seedRelayedErrorOutput } from "./error-output.js";
 import {
   bindOutputEndpoints,
   resolveEndpointRoute,
   serializeOutputWrite,
 } from "./output-endpoints.js";
-import { outputSegments, outputSize } from "../execution-output.js";
-import type { OutputSegment } from "../types.js";
 /**
  * Redirection Handling
  *
@@ -28,6 +34,7 @@ import type { ExecResult } from "../types.js";
 import {
   ControlFlowError,
   ErrexitError,
+  ExecutionAbortedError,
   ExecutionLimitError,
   ExitError,
   ReturnError,
@@ -1178,8 +1185,7 @@ export function preparedRedirectionError(
 ): ExecResult {
   if (!prepared.error) throw new Error("Expected a redirection error");
   if (prepared.errorCause) {
-    prepared.errorCause.stdout = prepared.error.stdout;
-    prepared.errorCause.stderr = prepared.error.stderr;
+    seedRelayedErrorOutput(prepared.errorCause, prepared.error);
     throw prepared.errorCause;
   }
   return prepared.error;
@@ -1188,8 +1194,7 @@ export function preparedRedirectionError(
 export async function routeControlFlowError(
   ctx: InterpreterContext,
   error: ControlFlowError,
-  redirections: RedirectionNode[],
-  prepared: PreparedRedirections,
+  prepared: Pick<PreparedRedirections, "outputRoutes">,
 ): Promise<void> {
   const exitCode =
     error instanceof ExitError ||
@@ -1199,21 +1204,34 @@ export async function routeControlFlowError(
       : error instanceof ExecutionLimitError
         ? ExecutionLimitError.EXIT_CODE
         : 0;
-  const routed = await applyRedirections(
-    ctx,
-    {
-      ...makeResult(error.stdout, error.stderr, exitCode),
-      internalOutputSegments: error.internalOutputSegments,
-      internalOutputAccounting: error.internalOutputAccounting,
-    },
-    redirections.length > 0,
-    prepared.outputRoutes,
-  );
-  error.stdout = routed.stdout;
-  error.stderr = routed.stderr;
-  error.internalOutputSegments = routed.internalOutputSegments;
-  error.internalOutputAccounting =
-    routed.internalOutputAccounting ?? error.internalOutputAccounting;
+  // A poisoned scope or revocation cannot admit new writes while unwinding.
+  if (
+    error instanceof ExecutionAbortedError ||
+    ctx.executionScope.failure ||
+    ctx.executionScope.shellJobs.signal.aborted ||
+    ctx.state.signal?.aborted
+  )
+    return;
+  await resolveErrorOutput(error, (part, alreadyAccountedBytes) => {
+    const [stream, text] = part;
+    return applyRedirections(
+      ctx,
+      {
+        ...makeResult(
+          stream === "stdout" ? text : "",
+          stream === "stderr" ? text : "",
+          exitCode,
+        ),
+        internalOutputSegments: [part],
+        internalOutputAccounting: {
+          stdout: stream === "stdout" ? alreadyAccountedBytes : 0,
+          stderr: stream === "stderr" ? alreadyAccountedBytes : 0,
+        },
+      },
+      true,
+      prepared.outputRoutes,
+    );
+  });
 }
 
 export async function withPreparedRedirections(
@@ -1222,6 +1240,7 @@ export async function withPreparedRedirections(
   inheritedStdin: string,
   run: (prepared: PreparedRedirections) => Promise<ExecResult>,
   stdinProvided = false,
+  outputPolicy: CompoundOutputPolicy = "relayed",
 ): Promise<ExecResult> {
   const transaction = createRedirectionTransaction(
     ctx,
@@ -1229,6 +1248,7 @@ export async function withPreparedRedirections(
     SIMPLE_REDIRECTION_POLICY,
   );
   let prepared: PreparedRedirections | undefined;
+  let routedError: unknown;
   const inputSnapshot: FdSnapshot = new Map();
   try {
     prepared = await transaction.prepare(inheritedStdin, stdinProvided);
@@ -1261,10 +1281,21 @@ export async function withPreparedRedirections(
     ctx.outputEndpoints = endpoints;
     try {
       const result = await run(prepared);
-      return await applyRedirections(ctx, result, redirections.length > 0, {
-        stdout: { kind: "live-stdout" },
-        stderr: { kind: "live-stderr" },
-      });
+      return await routeCompoundOutput(
+        ctx,
+        result,
+        outputPolicy,
+        redirections.length > 0,
+      );
+    } catch (error) {
+      if (error instanceof ControlFlowError) {
+        await routeControlFlowError(ctx, error, {
+          ...prepared,
+          outputRoutes: COMPOUND_OUTPUT_ROUTES,
+        });
+        routedError = error;
+      }
+      throw error;
     } finally {
       ctx.outputEndpoints = inheritedOutput;
       if (prepared.stdin !== undefined) {
@@ -1274,7 +1305,8 @@ export async function withPreparedRedirections(
     }
   } catch (error) {
     if (!(error instanceof ControlFlowError) || !prepared) throw error;
-    await routeControlFlowError(ctx, error, redirections, prepared);
+    if (error !== routedError)
+      await routeControlFlowError(ctx, error, prepared);
     throw error;
   } finally {
     restoreFds(ctx, inputSnapshot);
@@ -1404,55 +1436,53 @@ export async function applyRedirections(
       const sink = stream === "stdout" ? fd1Sink : fd2Sink;
       const encoding = kind === "bytes" ? "binary" : "utf8";
       if (!content) continue;
-      {
-        switch (sink.kind) {
-          case "live-stdout":
-          case "live-stderr": {
-            const source = sink.kind === "live-stdout" ? "stdout" : "stderr";
-            const endpoint = ctx.outputEndpoints?.[source];
-            if (endpoint && !endpoint.stream)
-              await endpoint.write(content, kind ?? "text");
-            else {
-              const target = endpoint?.stream ?? source;
-              if (target === "stdout") stdout += content;
-              else stderr += content;
-              routed.push([target, content, kind]);
-            }
-            break;
+      switch (sink.kind) {
+        case "live-stdout":
+        case "live-stderr": {
+          const source = sink.kind === "live-stdout" ? "stdout" : "stderr";
+          const endpoint = ctx.outputEndpoints?.[source];
+          if (endpoint && !endpoint.stream)
+            await endpoint.write(content, kind ?? "text");
+          else {
+            const target = endpoint?.stream ?? source;
+            if (target === "stdout") stdout += content;
+            else stderr += content;
+            routed.push([target, content, kind]);
           }
-          case "file":
-            await serializeOutputWrite(ctx.executionScope, async () => {
-              if (written.has(sink))
-                await writeOutputFile(
-                  ctx.fs,
-                  "appendFile",
-                  sink.path,
-                  content,
-                  encoding,
-                );
-              else await deliverToFile(sink, content, encoding);
-            });
-            written.add(sink);
-            break;
-          case "descriptor": {
-            const updatedEntry = await serializeOutputWrite(
-              ctx.executionScope,
-              () =>
-                writeFdEntry(
-                  ctx,
-                  sink.source.entry,
-                  sink.source.descriptors,
-                  content,
-                  encoding,
-                ),
-            );
-            if (updatedEntry) sink.source.entry = updatedEntry;
-            break;
-          }
-          case "invalid-output":
-          case "discard":
-            break;
+          break;
         }
+        case "file":
+          await serializeOutputWrite(ctx.executionScope, async () => {
+            if (written.has(sink))
+              await writeOutputFile(
+                ctx.fs,
+                "appendFile",
+                sink.path,
+                content,
+                encoding,
+              );
+            else await deliverToFile(sink, content, encoding);
+          });
+          written.add(sink);
+          break;
+        case "descriptor": {
+          const updatedEntry = await serializeOutputWrite(
+            ctx.executionScope,
+            () =>
+              writeFdEntry(
+                ctx,
+                sink.source.entry,
+                sink.source.descriptors,
+                content,
+                encoding,
+              ),
+          );
+          if (updatedEntry) sink.source.entry = updatedEntry;
+          break;
+        }
+        case "invalid-output":
+        case "discard":
+          break;
       }
     }
   }

@@ -17,9 +17,15 @@ import { Parser } from "../parser/parser.js";
 import type { ParseException } from "../parser/types.js";
 import type { ExecResult } from "../types.js";
 import {
+  COMPOUND_OUTPUT_ROUTES,
+  routeCompoundOutput,
+} from "./compound-output.js";
+import {
   BreakError,
   ContinueError,
+  ControlFlowError,
   ErrexitError,
+  ExecutionAbortedError,
   ExecutionLimitError,
   ExitError,
   isScopeExitError,
@@ -37,6 +43,7 @@ import { getErrorMessage } from "./helpers/errors.js";
 import { failure, result } from "./helpers/result.js";
 import {
   type PreparedRedirections,
+  routeControlFlowError,
   withPreparedRedirections,
 } from "./redirections.js";
 import { beginIsolatedShellState } from "./state-transaction.js";
@@ -141,10 +148,17 @@ async function executeSubshellBody(
     }
   } catch (error) {
     // ExecutionLimitError must always propagate - these are safety limits
-    if (error instanceof ExecutionLimitError) {
+    if (
+      error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError
+    ) {
       output.prependTo(error);
       throw error;
     }
+    if (error instanceof ControlFlowError)
+      await routeControlFlowError(ctx, error, {
+        outputRoutes: COMPOUND_OUTPUT_ROUTES,
+      });
     // SubshellExitError means break/continue was called when parent had loop context
     // This exits the subshell cleanly with exit code 0
     if (error instanceof SubshellExitError) {
@@ -194,7 +208,13 @@ async function executeSubshellBody(
       return output.build(1);
     }
     // Apply output redirections before returning
-    output.append("stderr", `${getErrorMessage(error)}\n`);
+    output.appendResult(
+      await routeCompoundOutput(
+        ctx,
+        { stdout: "", stderr: `${getErrorMessage(error)}\n`, exitCode: 1 },
+        "fresh",
+      ),
+    );
     return output.build(1);
   }
 
@@ -291,7 +311,10 @@ async function executeGroupBody(
     // Restore groupStdin before handling error
     restoreGroupStdin();
     // ExecutionLimitError must always propagate - these are safety limits
-    if (error instanceof ExecutionLimitError) {
+    if (
+      error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError
+    ) {
       output.prependTo(error);
       throw error;
     }
@@ -304,7 +327,13 @@ async function executeGroupBody(
       output.prependTo(error);
       throw error;
     }
-    output.append("stderr", `${getErrorMessage(error)}\n`);
+    output.appendResult(
+      await routeCompoundOutput(
+        ctx,
+        { stdout: "", stderr: `${getErrorMessage(error)}\n`, exitCode: 1 },
+        "fresh",
+      ),
+    );
     return output.build(1);
   }
 

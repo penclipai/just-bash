@@ -54,8 +54,8 @@ import {
 } from "./interpreter/helpers/shellopts.js";
 import {
   Interpreter,
-  type InterpreterOptions,
   type InterpreterContext,
+  type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
 import type { SharedInputSession, ShellArray } from "./interpreter/types.js";
@@ -1058,6 +1058,12 @@ export class Bash {
             if (!callerState) {
               executionScope.shellJobs.cancel(error);
               await executionScope.shellJobs.joinAll().catch(() => {});
+              const cause = effectiveOptions.signal?.reason;
+              if (
+                error instanceof ExecutionAbortedError &&
+                cause instanceof ExecutionLimitError
+              )
+                throw cause;
             }
             throw error;
           }

@@ -3,14 +3,25 @@ import { Bash } from "../Bash.js";
 import { ExecutionLimitError } from "../interpreter/errors.js";
 
 describe("standalone command resource limits", () => {
-  it("bounds cat's aggregate repeated stdin before concatenating it", async () => {
+  it("bounds cat's aggregate repeated files before concatenation", async () => {
+    const bash = new Bash({
+      files: { "/f": "1234" },
+      executionLimits: { maxOutputSize: 5 },
+    });
+    const result = await bash.exec("cat /f /f");
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "bash: cat: output size limit exceeded (5 bytes)\n",
+      exitCode: ExecutionLimitError.EXIT_CODE,
+    });
+  });
+
+  it("does not replay stdin after EOF for another cat operand", async () => {
     const bash = new Bash({ executionLimits: { maxOutputSize: 5 } });
     const result = await bash.exec("printf 1234 | cat - -");
 
-    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
-    expect(result.stderr).toContain(
-      "cat: output size limit exceeded (5 bytes)",
-    );
+    expect(result).toMatchObject({ stdout: "1234", stderr: "", exitCode: 0 });
   });
 
   it("bounds cat transformations before expanding the next byte", async () => {

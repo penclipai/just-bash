@@ -9,44 +9,39 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { preProcessFile } from "typescript";
 import { describe, expect, it } from "vitest";
 import { Bash } from "./Bash.js";
 import { BROWSER_EXCLUDED_COMMANDS } from "./commands/browser-excluded.js";
 import { getCommandNames, getPythonCommandNames } from "./commands/registry.js";
 
 const browserBundlePath = resolve(__dirname, "../dist/bundle/browser.js");
+const browserBundle = (await import(
+  pathToFileURL(browserBundlePath).href
+)) as typeof import("./browser.js");
 
 describe("browser bundle safety", () => {
   describe("bundle contents", () => {
-    it("should not contain sql.js imports", () => {
+    it("has no executable sql.js imports", () => {
       const bundleContent = readFileSync(browserBundlePath, "utf-8");
-      expect(bundleContent).not.toContain("sql.js");
+      const imports = preProcessFile(bundleContent, true, true).importedFiles;
+      expect(
+        imports.filter(
+          ({ fileName }) =>
+            fileName === "sql.js" || fileName.startsWith("sql.js/"),
+        ),
+      ).toEqual([]);
     });
 
-    it("should not contain sqlite3 command registration", () => {
-      const bundleContent = readFileSync(browserBundlePath, "utf-8");
-      // The sqlite3 command should not be in the bundle at all
-      // since it's excluded via __BROWSER__ flag
-      expect(bundleContent).not.toContain('name:"sqlite3"');
-      expect(bundleContent).not.toContain("sqlite3Command");
-    });
-
-    it("should not contain yq command registration", () => {
-      const bundleContent = readFileSync(browserBundlePath, "utf-8");
-      expect(bundleContent).not.toContain('name:"yq"');
-      expect(bundleContent).not.toContain("yqCommand");
-    });
-
-    it("should not contain xan command registration", () => {
-      const bundleContent = readFileSync(browserBundlePath, "utf-8");
-      expect(bundleContent).not.toContain('name:"xan"');
-      expect(bundleContent).not.toContain("xanCommand");
-    });
-
-    it("should not contain tar command registration", () => {
-      const bundleContent = readFileSync(browserBundlePath, "utf-8");
-      expect(bundleContent).not.toContain('name:"tar"');
-      expect(bundleContent).not.toContain("tarCommand");
+    it.each([
+      "sqlite3",
+      "yq",
+      "xan",
+      "tar",
+    ])("excludes %s from the browser registry", (command) => {
+      // Unminified bundles can retain comments and unreachable registrations.
+      expect(browserBundle.getCommandNames()).not.toContain(command);
     });
 
     it("should not contain direct node: protocol imports in bundle code", () => {

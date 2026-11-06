@@ -23,6 +23,16 @@ describe("Automa shell byte boundaries", () => {
     expect(result.output).toBe("éX");
     expect(observed).toBe("éX");
   });
+  it("persists late writer bytes after the original text", async () => {
+    const bash = new Bash();
+    const result = await bash.exec(
+      "f(){ echo -n é; }; { f >(printf X); } > /tmp/mixed",
+    );
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    expect(await bash.fs.readFileBuffer("/tmp/mixed")).toEqual(
+      new Uint8Array([0xc3, 0xa9, 0x58]),
+    );
+  });
   it("keeps ordered output through a redirected function return", async () => {
     const result = await new Bash().exec(
       "f(){ printf a; printf b >&2; printf c; return; }; f 2>&1",

@@ -6,6 +6,11 @@ import {
   writeOutputFile,
 } from "../fs/output-write.js";
 import { setFdEntry } from "./fd-table.js";
+import type { OutputEndpoints } from "./output-endpoints.js";
+import {
+  captureProcessWriterEndpoints,
+  routeProcessWriterOutput,
+} from "./process-writer-output.js";
 import { allocateShellPid } from "./shell-jobs.js";
 import { beginIsolatedShellState } from "./state-transaction.js";
 import { automaTrapChild } from "./traps.js";
@@ -253,13 +258,11 @@ async function dropBackingFile(
 }
 
 /** A process substitution whose backing file is still live. */
-export interface ProcessSubstitutionEntry {
+export type ProcessSubstitutionEntry = {
   /** Synthetic descriptor number (63, 62, …). */
   fd: number;
   /** Backing file path handed to the outer command. */
   path: string;
-  /** `<(...)` or `>(...)`. */
-  direction: "input" | "output";
   /** Body to run with the written bytes as stdin (output substitutions only). */
   body: ScriptNode;
   /** Automa: credits belong only to bytes routed into this capture. */
@@ -269,7 +272,10 @@ export interface ProcessSubstitutionEntry {
     revision: number;
     paths: Set<string>;
   };
-}
+} & (
+  | { direction: "input" }
+  | { direction: "output"; outputEndpoints: OutputEndpoints }
+);
 
 /** Keep direct backing-file replacement from inheriting stdout routing credits. */
 function captureFileSystem(
@@ -604,7 +610,17 @@ export async function openProcessSubstitution(
     // guarded /dev/fd mount; a failed write must not leave it registered.
     const fd = FIRST_FD - entries.length;
     const path = `${PROC_SUB_DIR}/${fd}`;
-    entries.push({ fd, path, direction: part.direction, body: part.body });
+    entries.push(
+      part.direction === "output"
+        ? {
+            fd,
+            path,
+            direction: "output",
+            body: part.body,
+            outputEndpoints: await captureProcessWriterEndpoints(ctx),
+          }
+        : { fd, path, direction: "input", body: part.body },
+    );
     try {
       await writeBackingFile(ctx, path, bytes);
     } catch (error) {
@@ -675,11 +691,23 @@ export async function releaseProcessSubstitutions(
       // Run the writer only after the descriptor is gone, so a body that throws
       // (an execution limit, say) cannot leave the entry or its file behind.
       if (entry.direction === "output") {
-        const result = await captureProcessBytes(ctx, entry.body, written);
+        const inheritedEndpoints = ctx.outputEndpoints;
+        ctx.outputEndpoints = entry.outputEndpoints;
         try {
-          output.appendResult(result);
+          const result = await captureProcessBytes(ctx, entry.body, written);
+          try {
+            output.appendResult(
+              await routeProcessWriterOutput(
+                ctx,
+                result,
+                entry.outputEndpoints,
+              ),
+            );
+          } finally {
+            result.captureRelease();
+          }
         } finally {
-          result.captureRelease();
+          ctx.outputEndpoints = inheritedEndpoints;
         }
       }
     }

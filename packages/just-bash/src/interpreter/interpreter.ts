@@ -1,6 +1,6 @@
-import { resolveEndpointRoute } from "./output-endpoints.js";
-import { launchBackgroundStatement } from "./background-statement.js";
 import { outputSegments } from "../execution-output.js";
+import { launchBackgroundStatement } from "./background-statement.js";
+import { resolveEndpointRoute } from "./output-endpoints.js";
 import { automaTrapEligible, automaTrapRun, automaTrapShell } from "./traps.js";
 
 /**
@@ -72,6 +72,11 @@ import {
   executeUntil,
   executeWhile,
 } from "./control-flow.js";
+import {
+  appendRelayedErrorOutput,
+  inheritErrorOutput,
+  seedRelayedErrorOutput,
+} from "./error-output.js";
 import {
   ArithmeticError,
   BadSubstitutionError,
@@ -380,8 +385,7 @@ export class Interpreter {
             error.stdout,
             error.stderr,
           );
-          fatal.internalOutputSegments = error.internalOutputSegments;
-          fatal.internalOutputAccounting = error.internalOutputAccounting;
+          inheritErrorOutput(fatal, error);
           throw fatal;
         }
         if (error instanceof BadSubstitutionError) {
@@ -601,7 +605,7 @@ export class Interpreter {
       !innerWasSafe
     ) {
       const error = new ErrexitError(exitCode);
-      statementOutput.prependTo(error);
+      seedRelayedErrorOutput(error, statementOutput.build(exitCode));
       throw error;
     }
 
@@ -655,21 +659,7 @@ export class Interpreter {
         throw writerError;
       }
       if (error instanceof ControlFlowError) {
-        const combined = this.appendProcessWriterOutput(
-          {
-            stdout: error.stdout,
-            stderr: error.stderr,
-            exitCode: 0,
-            internalOutputAccounting: error.internalOutputAccounting,
-            internalOutputSegments: error.internalOutputSegments,
-          },
-          writer,
-        );
-        error.stdout = combined.stdout;
-        error.stderr = combined.stderr;
-        error.internalOutputAccounting =
-          combined.internalOutputAccounting ?? error.internalOutputAccounting;
-        error.internalOutputSegments = combined.internalOutputSegments;
+        appendRelayedErrorOutput(error, { ...writer, stdoutKind: "bytes" });
       }
       throw error;
     }
@@ -1402,6 +1392,8 @@ export class Interpreter {
           );
         }
       },
+      false,
+      "fresh",
     );
   }
 
@@ -1440,6 +1432,8 @@ export class Interpreter {
           );
         }
       },
+      false,
+      "fresh",
     );
   }
 }

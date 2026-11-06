@@ -305,6 +305,7 @@ function createRevocableCommandContext(
   });
 
   const descriptors = Object.getOwnPropertyDescriptors(context);
+  const getShellJobSnapshot = context.getShellJobSnapshot;
   Object.assign(descriptors, {
     fs: dataDescriptor(wrapCapability(context.fs)),
     env: dataDescriptor(wrapCapability(context.env)),
@@ -328,10 +329,10 @@ function createRevocableCommandContext(
       context.coverage ? wrapCapability(context.coverage) : undefined,
     ),
     getShellJobSnapshot: dataDescriptor(
-      context.getShellJobSnapshot
+      getShellJobSnapshot
         ? () => {
             assertActive();
-            return context.getShellJobSnapshot!();
+            return getShellJobSnapshot.call(context);
           }
         : undefined,
     ),
@@ -1067,11 +1068,19 @@ export async function executeExternalCommand(
       ? createCommandExecutionBudget(ctx.executionScope, ctx.output)
       : ctx.executionScope,
     exec: (script, options) => ctx.execFn(script, options, false),
-    execWithInheritedStdin: (script, options) => {
+    execWithInheritedStdin: async (script, options) => {
+      // An unredirected empty wrapper does not own an input description.
+      if (!commandStdinProvided && latin1FromBytes(effectiveStdin).length === 0)
+        return ctx.execFn(script, options, true);
       inheritedInputSession ??= liveInput?.readMore
         ? liveInput
         : { remaining: latin1FromBytes(effectiveStdin) };
-      return ctx.execFn(script, options, true, inheritedInputSession);
+      try {
+        return await ctx.execFn(script, options, true, inheritedInputSession);
+      } finally {
+        if (!commandStdinProvided)
+          ctx.state.groupStdin = inheritedInputSession.remaining;
+      }
     },
     fetch: ctx.fetch,
     getRegisteredCommands: () => Array.from(ctx.commands.keys()),
@@ -1153,14 +1162,14 @@ export async function executeExternalCommand(
       ...finishOutput(commandResult),
       internalStdinConsumed: liveInput?.readMore
         ? 0
-        : (commandResult.internalStdinConsumed ??
-          Math.max(
-            stdinAccessed ? stdin.length : 0,
+        : Math.max(
+            commandResult.internalStdinConsumed ??
+              (stdinAccessed ? stdin.length : 0),
             inheritedInputSession
               ? latin1FromBytes(effectiveStdin).length -
                   inheritedInputSession.remaining.length
               : 0,
-          )),
+          ),
     };
   } catch (error) {
     streamed?.prependTo(error);

@@ -30,6 +30,19 @@ Spec tests have known failures, so exclude them when you want a clean run: `pnpm
 
 Tests run from source. Build first only when you need to exercise the compiled output under `dist/`.
 
+The CLI and security suites also exercise Python and XZ. Materialize the Python
+WASM with Git LFS; a Git LFS pointer is not an executable runtime. XZ needs the
+optional `node-liblzma` native binding built for the active Node version, with
+the platform's C++ toolchain, `pkg-config`, and liblzma development headers:
+
+```sh
+git lfs pull --include=packages/just-bash/vendor/cpython-emscripten/python.wasm
+pnpm --filter just-bash rebuild node-liblzma
+```
+
+Missing prerequisites are test setup failures, not evidence that these paths
+passed. Downstream disabling Python does not disable the fork's own tests.
+
 ## Making a change
 
 The implementation must match real bash, not what is convenient for TypeScript. A command that behaves differently from bash is a bug, so check real bash whenever you are unsure. Intentional differences exist where bash cannot be supported without escaping the sandbox, such as unrestricted writes, free network access, and commands that would need host resources the sandbox does not provide.

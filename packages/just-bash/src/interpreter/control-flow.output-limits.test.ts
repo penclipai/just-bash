@@ -38,7 +38,7 @@ describe("compound control-flow output limits", () => {
 
       expect(result.stdout).toBe("12345\n");
       expect(result.stderr).toBe(
-        "bash: pipeline: total output size exceeded (>10 bytes), increase executionLimits.maxOutputSize\n",
+        "bash: redirection: total output size exceeded (>10 bytes), increase executionLimits.maxOutputSize\n",
       );
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
@@ -65,7 +65,7 @@ describe("compound control-flow output limits", () => {
 
     expect(result.stdout).toBe("12345\n");
     expect(result.stderr).toBe(
-      "bash: pipeline: total output size exceeded (>10 bytes), increase executionLimits.maxOutputSize\n",
+      "bash: redirection: total output size exceeded (>10 bytes), increase executionLimits.maxOutputSize\n",
     );
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });

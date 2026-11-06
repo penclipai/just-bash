@@ -10,6 +10,17 @@ import {
   originalFetch,
 } from "./shared.js";
 
+const lookup = vi.hoisted(() => {
+  vi.resetModules();
+  return vi.fn(async (_hostname: string) => [
+    { address: "93.184.216.34", family: 4 },
+  ]);
+});
+vi.mock("node:dns/promises", () => {
+  const mocked = (hostname: string) => lookup(hostname);
+  return { lookup: mocked, default: { lookup: mocked } };
+});
+
 describe("DNS rebinding SSRF protection", () => {
   let mockFetch: ReturnType<typeof createMockFetch>;
 
@@ -88,11 +99,8 @@ describe("DNS rebinding SSRF protection", () => {
     });
 
     it("rejects a redirect to a private IP literal", async () => {
-      // The transport is injected rather than mocked on the global: the
-      // private-range-enforcing path deliberately uses guarded-fetch's own
-      // transport, so a global mock would not be consulted. Enforcement is
-      // off here because the point of the test is the adapter's per-hop
-      // lexical re-check, not resolution (covered in dns-guarded-path).
+      // Resolve the first hop to a public address, then reject the private
+      // redirect without sending a second request. Both seams stay local.
       const transport = vi.fn(
         async () =>
           new Response("", {
@@ -109,6 +117,8 @@ describe("DNS rebinding SSRF protection", () => {
       await expect(secureFetch("https://evil.com/start")).rejects.toThrow(
         "Redirect target not in allow-list",
       );
+      expect(lookup).toHaveBeenCalledWith("evil.com");
+      expect(transport).toHaveBeenCalledTimes(1);
     });
   });
 

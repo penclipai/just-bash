@@ -1,37 +1,35 @@
-/**
- * DNS rebinding integration tests with REAL DNS resolution (no mocks).
- *
- * These tests verify that the DNS resolution path in checkAllowed()
- * actually works end-to-end with real dns.lookup calls.
- * Only fetch is mocked (to avoid real HTTP requests).
- */
+/** End-to-end curl admission with mocked DNS and HTTP transports. */
 
-import { lookup } from "node:dns";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createBashEnvAdapter,
   createMockFetch,
+  MOCK_SUCCESS_BODY,
   originalFetch,
 } from "./shared.js";
 
-/**
- * Resolve a hostname with real DNS and return addresses.
- */
-function realLookupAll(
-  hostname: string,
-): Promise<{ address: string; family: number }[]> {
-  return new Promise((resolve, reject) => {
-    lookup(hostname, { all: true }, (err, addresses) => {
-      if (err) reject(err);
-      else resolve(addresses);
-    });
-  });
-}
+const lookup = vi.hoisted(() => {
+  vi.resetModules();
+  return vi.fn<
+    (hostname: string) => Promise<{ address: string; family: number }[]>
+  >();
+});
+vi.mock("node:dns/promises", () => {
+  const mocked = (hostname: string) => lookup(hostname);
+  return { lookup: mocked, default: { lookup: mocked } };
+});
 
-describe("DNS rebinding integration (real DNS)", () => {
+describe("DNS admission through curl", () => {
   let mockFetch: ReturnType<typeof createMockFetch>;
 
   beforeAll(() => {
+    lookup.mockImplementation(async (hostname) => {
+      if (hostname === "missing.example")
+        throw Object.assign(new Error("DNS record not found"), {
+          code: "ENOTFOUND",
+        });
+      return [{ address: "93.184.216.34", family: 4 }];
+    });
     mockFetch = createMockFetch();
     global.fetch = mockFetch as typeof fetch;
   });
@@ -41,92 +39,41 @@ describe("DNS rebinding integration (real DNS)", () => {
     vi.restoreAllMocks();
   });
 
-  it("real dns.lookup resolves localhost to loopback", async () => {
-    // Verify the real DNS module works and resolves as expected.
-    // This proves our ESM import of node:dns is functional.
-    const addresses = await realLookupAll("localhost");
-    expect(addresses.length).toBeGreaterThan(0);
-    const hasLoopback = addresses.some(
-      ({ address }) => address === "127.0.0.1" || address === "::1",
-    );
-    expect(hasLoopback).toBe(true);
-  });
-
-  it("allows public domain through real DNS check (if DNS available)", async () => {
-    // Try to resolve a real public domain. May fail in sandboxed
-    // environments — skip gracefully if so.
-    let addresses: { address: string; family: number }[];
-    try {
-      addresses = await realLookupAll("example.com");
-    } catch {
-      // DNS unavailable (sandbox/CI) — skip
-      return;
-    }
-
-    expect(addresses.length).toBeGreaterThan(0);
-    // example.com should resolve to a public IP
-    for (const { address } of addresses) {
-      expect(address).not.toMatch(
-        /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/,
-      );
-      expect(address).not.toBe("::1");
-    }
-
+  it("resolves an allowed host before the mocked transport", async () => {
     const env = createBashEnvAdapter({
       network: {
-        dangerouslyAllowFullInternetAccess: true,
+        allowedUrlPrefixes: ["https://api.example.com"],
         denyPrivateRanges: true,
       },
     });
 
-    // Real DNS resolves example.com → public IP → passes DNS check
-    // Mock fetch returns 404 for unknown URLs — the key assertion is
-    // that the DNS check didn't block it.
-    const result = await env.exec('curl "https://example.com/data"');
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toBe("");
+    const result = await env.exec('curl "https://api.example.com/data"');
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: MOCK_SUCCESS_BODY,
+      stderr: "",
+    });
+    expect(lookup).toHaveBeenCalledWith("api.example.com");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("ENOTFOUND domain fails closed before fetch", async () => {
+  it("rejects failed DNS without calling the transport", async () => {
     const env = createBashEnvAdapter({
       network: {
-        allowedUrlPrefixes: [
-          "https://this-domain-does-not-exist-xyz123.example",
-        ],
+        allowedUrlPrefixes: ["https://missing.example"],
         denyPrivateRanges: true,
       },
     });
 
     const callsBefore = mockFetch.mock.calls.length;
-    const result = await env.exec(
-      'curl "https://this-domain-does-not-exist-xyz123.example/data"',
-    );
-    expect(result.exitCode).toBe(7);
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toBe(
-      "curl: (7) Network access denied: DNS resolution failed for private IP check: https://this-domain-does-not-exist-xyz123.example/data\n",
-    );
-    expect(mockFetch.mock.calls).toHaveLength(callsBefore);
-  });
-
-  it("denyPrivateRanges + allow-list works with real DNS", async () => {
-    // Verify the combination of allow-list + denyPrivateRanges + real DNS
-    // doesn't break normal operation for a public domain.
-    try {
-      await realLookupAll("example.com");
-    } catch {
-      return;
-    }
-
-    const env = createBashEnvAdapter({
-      network: {
-        allowedUrlPrefixes: ["https://example.com"],
-        denyPrivateRanges: true,
-      },
+    const result = await env.exec('curl "https://missing.example/data"');
+    expect(result).toMatchObject({
+      exitCode: 7,
+      stdout: "",
+      stderr:
+        "curl: (7) Network access denied: DNS resolution failed for private IP check: https://missing.example/data\n",
     });
-
-    const result = await env.exec('curl "https://example.com/data"');
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(lookup).toHaveBeenCalledWith("missing.example");
+    expect(mockFetch.mock.calls).toHaveLength(callsBefore);
   });
 });
