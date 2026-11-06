@@ -16,6 +16,44 @@ const passthrough = defineCommand(
 );
 
 describe("custom nested output ownership", () => {
+  it("collects streaming results outside pipelines at one byte", async () => {
+    const emit = defineCommand("emit", async (_args, ctx) => {
+      assert(ctx.writeOutput);
+      await ctx.writeOutput("A", "stdout");
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+    const collect = defineCommand("collect", async (_args, ctx) => {
+      assert(ctx.execWithInheritedStdin);
+      const result = await ctx.execWithInheritedStdin("emit", {
+        cwd: ctx.cwd,
+        inheritOutput: false,
+      });
+      expect(result.stdout).toBe("A");
+      return result;
+    });
+    for (const script of ["collect", "collect >/out"]) {
+      const seen: string[] = [];
+      const bash = new Bash({
+        customCommands: [emit, collect],
+        executionLimits: { maxOutputSize: 1 },
+      });
+      const result = await bash.exec(script, {
+        onOutput: (text) => {
+          seen.push(text);
+        },
+      });
+      expect(result).toMatchObject({ stderr: "", exitCode: 0 });
+      expect(result.executionFailure).toBeUndefined();
+      if (script.includes(">/out")) {
+        expect(result.stdout).toBe("");
+        expect(seen).toEqual([]);
+        expect(await bash.fs.readFile("/out")).toBe("A");
+      } else {
+        expect(result.stdout).toBe("A");
+        expect(seen).toEqual(["A"]);
+      }
+    }
+  });
   it("forwards binary pipes and redirects within two bytes", async () => {
     for (const script of [
       "cat /payload | pass cat",
