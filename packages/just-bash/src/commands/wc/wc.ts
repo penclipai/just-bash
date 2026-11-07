@@ -3,8 +3,8 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { parseWcArgs } from "./options.js";
 import { readWcCounts } from "./read-counts.js";
 
 const wcHelp = {
@@ -20,13 +20,6 @@ const wcHelp = {
   ],
 };
 
-const argDefs = {
-  lines: { short: "l", long: "lines", type: "boolean" as const },
-  words: { short: "w", long: "words", type: "boolean" as const },
-  bytes: { short: "c", long: "bytes", type: "boolean" as const },
-  chars: { short: "m", long: "chars", type: "boolean" as const },
-};
-
 export const wcCommand: RuntimeCommand = {
   name: "wc",
 
@@ -38,7 +31,7 @@ export const wcCommand: RuntimeCommand = {
       return showHelp(wcHelp);
     }
 
-    const parsed = parseArgs("wc", args, argDefs);
+    const parsed = parseWcArgs(args);
     if (!parsed.ok) return parsed.error;
 
     let { lines: showLines, words: showWords } = parsed.result.flags;

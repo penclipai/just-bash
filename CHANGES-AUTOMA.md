@@ -6,6 +6,15 @@ It replaces Automa's generated patches against the three minified just-bash
 Automa records the exact fork commit, build inputs and artifact hashes in
 `vendor/just-bash/VENDOR.json`. That commit, not `3.6.0`, identifies this fork.
 
+## Fixed query entry
+
+The private `just-bash/automa-query` browser entry exposes the original AST
+parser, fixed read commands, option parsers and output presenter without loading
+the Shell interpreter or Node/TypeScript runtimes. Its caller admits complete
+syntax and supplies invocation-scoped filesystem, cancellation and budgets.
+Startup environment defaults are shared with Bash. Lightweight fatal error
+modules preserve the constructor identities exported from their original paths.
+
 ## N00b migration ownership
 
 | Former Automa generator or inline adaptation | Source owner | Regression coverage |

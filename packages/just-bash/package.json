@@ -31,6 +31,10 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/bundle/browser.js"
+    },
+    "./automa-query": {
+      "types": "./dist/automa-query.d.ts",
+      "import": "./dist/bundle/automa-query.js"
     }
   },
   "files": [
@@ -63,7 +67,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc && pnpm build:lib && pnpm build:lib:cjs && pnpm build:browser && pnpm build:cli && pnpm build:shell && pnpm build:worker && pnpm build:clean && cp dist/index.d.ts dist/index.d.cts && sed '1,/^-->/d' AGENTS.npm.md > dist/AGENTS.md",
+    "build": "rm -rf dist && tsc && pnpm build:lib && pnpm build:lib:cjs && pnpm build:browser && pnpm build:automa-query && pnpm build:cli && pnpm build:shell && pnpm build:worker && pnpm build:clean && cp dist/index.d.ts dist/index.d.cts && sed '1,/^-->/d' AGENTS.npm.md > dist/AGENTS.md",
     "build:clean": "find dist -name '*.test.js' -delete && find dist -name '*.test.d.ts' -delete",
     "build:worker": "esbuild src/commands/python3/worker.ts --bundle --platform=node --format=esm --outfile=src/commands/python3/worker.js --external:../../../vendor/cpython-emscripten/* && cp src/commands/python3/worker.js dist/commands/python3/worker.js && mkdir -p dist/bin/chunks && cp src/commands/python3/worker.js dist/bin/chunks/worker.js && mkdir -p dist/bundle/chunks && cp src/commands/python3/worker.js dist/bundle/chunks/worker.js && esbuild src/commands/sqlite3/worker.ts --bundle --platform=node --format=esm --outfile=src/commands/sqlite3/worker.js --external:sql.js && mkdir -p dist/commands/sqlite3 && cp src/commands/sqlite3/worker.js dist/commands/sqlite3/worker.js && cp src/commands/sqlite3/worker.js dist/bin/chunks/sqlite3-worker.js && cp src/commands/sqlite3/worker.js dist/bundle/chunks/sqlite3-worker.js",
     "build:lib": "esbuild dist/index.js --bundle --splitting --platform=node --format=esm --outdir=dist/bundle --chunk-names=chunks/[name]-[hash] --banner:js='import{createRequire} from\"node:module\";const require=createRequire(import.meta.url);' --external:diff --external:sprintf-js --external:turndown --external:sql.js --external:run --external:@mongodb-js/zstd --external:node-liblzma --external:seek-bzip --external:guarded-fetch --metafile=dist/lib-layout.json && node scripts/name-library-chunks.js",
@@ -91,7 +95,8 @@
     "test:fuzz": "vitest run src/security/fuzzing/",
     "test:fuzz:long": "FUZZ_RUNS=10000 vitest run src/security/fuzzing/",
     "shell": "tsx src/cli/shell.ts",
-    "dev:exec": "tsx src/cli/exec.ts"
+    "dev:exec": "tsx src/cli/exec.ts",
+    "build:automa-query": "esbuild dist/automa-query.js --bundle --platform=browser --format=esm --outfile=dist/bundle/automa-query.js"
   },
   "keywords": [],
   "author": "Malte and Claude",

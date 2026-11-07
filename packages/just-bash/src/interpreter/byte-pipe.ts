@@ -9,19 +9,10 @@ import {
   type ResourceLease,
   relinquishPipelineOutput,
 } from "../execution-scope.js";
-import {
-  ExecutionAbortedError,
-  ExecutionLimitError,
-  ExitError,
-} from "./errors.js";
+import { BrokenPipeError } from "./broken-pipe-error.js";
+import { ExecutionAbortedError, ExecutionLimitError } from "./errors.js";
 
-export class BrokenPipeError extends ExitError {
-  readonly code = "EPIPE";
-  constructor() {
-    super(141);
-    this.message = "Broken pipe";
-  }
-}
+export { BrokenPipeError } from "./broken-pipe-error.js";
 
 interface Block {
   bytes: Uint8Array;

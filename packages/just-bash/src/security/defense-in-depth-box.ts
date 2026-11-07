@@ -32,12 +32,9 @@
 
 import * as nodeAsyncHooks from "node:async_hooks";
 import * as nodeModule from "node:module";
-import {
-  type BlockedGlobal,
-  getBlockedGlobals,
-  getBlockedGlobalViolationTypes,
-} from "./blocked-globals.js";
+import { type BlockedGlobal, getBlockedGlobals } from "./blocked-globals.js";
 import { getSafeTimestamp } from "./safe-timestamp.js";
+import { SecurityViolationError } from "./security-violation-error.js";
 import type {
   DefenseInDepthConfig,
   DefenseInDepthHandle,
@@ -46,10 +43,9 @@ import type {
   SecurityViolation,
   SecurityViolationType,
 } from "./types.js";
-import {
-  assertExcludableViolationTypes,
-  formatViolationErrorMessage,
-} from "./violation-error-message.js";
+import { assertExcludableViolationTypes } from "./violation-error-message.js";
+
+export { SecurityViolationError } from "./security-violation-error.js";
 
 /**
  * Whether we're running in a browser environment.
@@ -115,26 +111,6 @@ if (!IS_BROWSER) {
     nodeModuleClass = nodeModuleApi.Module ?? nodeModuleApi.default ?? null;
   } catch {
     // Not available (edge runtimes, restricted environments)
-  }
-}
-
-/**
- * Error thrown when a security violation is detected and blocking is enabled.
- */
-export class SecurityViolationError extends Error {
-  constructor(
-    message: string,
-    public readonly violation: SecurityViolation,
-  ) {
-    super(
-      formatViolationErrorMessage(
-        message,
-        violation.type,
-        violation.type === "error_prepare_stack_trace" ||
-          getBlockedGlobalViolationTypes().has(violation.type),
-      ),
-    );
-    this.name = "SecurityViolationError";
   }
 }
 

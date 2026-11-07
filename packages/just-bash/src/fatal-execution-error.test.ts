@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { rethrowFatalExecutionError } from "./fatal-execution-error.js";
+import { BrokenPipeError } from "./interpreter/broken-pipe-error.js";
+import { BrokenPipeError as LegacyBrokenPipeError } from "./interpreter/byte-pipe.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "./interpreter/errors.js";
 import { SecurityViolationError } from "./security/defense-in-depth-box.js";
+import { SecurityViolationError as DirectSecurityViolationError } from "./security/security-violation-error.js";
 
 describe("rethrowFatalExecutionError", () => {
+  it("keeps fatal error identity through the legacy exports", () => {
+    expect(BrokenPipeError).toBe(LegacyBrokenPipeError);
+    expect(SecurityViolationError).toBe(DirectSecurityViolationError);
+    const broken = new LegacyBrokenPipeError();
+    expect(() => rethrowFatalExecutionError(broken)).toThrow(broken);
+  });
+
   it("rethrows safety failures unchanged", () => {
     const limit = new ExecutionLimitError("test", "iterations");
     const aborted = new ExecutionAbortedError();

@@ -6,13 +6,13 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { parseArgs } from "../../utils/args.js";
 import { accountFileInput } from "../../utils/file-reader.js";
 import { fsErrorMessage } from "../../utils/fs-error.js";
 import { readStdin } from "../../utils/read-stdin.js";
 import { withByteReader } from "../../utils/with-byte-reader.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { copyByteInput } from "./copy-byte-input.js";
+import { parseCatArgs } from "./options.js";
 
 const catHelp = {
   name: "cat",
@@ -31,27 +31,6 @@ const catHelp = {
     "-v, --show-nonprinting use ^ and M- notation, except for LFD and TAB",
     "    --help             display this help and exit",
   ],
-};
-
-const argDefs = {
-  number: { short: "n", long: "number", type: "boolean" as const },
-  numberNonblank: {
-    short: "b",
-    long: "number-nonblank",
-    type: "boolean" as const,
-  },
-  showEnds: { short: "E", long: "show-ends", type: "boolean" as const },
-  showTabs: { short: "T", long: "show-tabs", type: "boolean" as const },
-  showNonprinting: {
-    short: "v",
-    long: "show-nonprinting",
-    type: "boolean" as const,
-  },
-  showAll: { short: "A", long: "show-all", type: "boolean" as const },
-  squeeze: { short: "s", long: "squeeze-blank", type: "boolean" as const },
-  vE: { short: "e", type: "boolean" as const },
-  vT: { short: "t", type: "boolean" as const },
-  ignored: { short: "u", type: "boolean" as const },
 };
 
 interface CatOptions {
@@ -74,7 +53,7 @@ export const catCommand: RuntimeCommand = {
       return showHelp(catHelp);
     }
 
-    const parsed = parseArgs("cat", args, argDefs);
+    const parsed = parseCatArgs(args);
     if (!parsed.ok) return parsed.error;
     const f = parsed.result.flags;
 

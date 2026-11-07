@@ -1,4 +1,11 @@
 import {
+  createInitialShellEnvironment,
+  DEFAULT_PATH,
+  HOST_VARS,
+  INITIAL_SHELL_OPTIONS,
+  INITIAL_SHOPT_OPTIONS,
+} from "./initial-shell-environment.js";
+import {
   cloneOwnedDescriptors,
   releaseOwnedDescriptors,
 } from "./interpreter/descriptor-state.js";
@@ -103,8 +110,6 @@ import type {
 
 export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
 
-const DEFAULT_PATH = "/usr/bin:/bin";
-
 function versionArray(arch?: string): ShellArray {
   return {
     kind: "indexed",
@@ -113,17 +118,6 @@ function versionArray(arch?: string): ShellArray {
     ),
   };
 }
-
-/**
- * Variables a shell sets from its build and host at startup when the
- * environment does not provide them.
- */
-const HOST_VARS: ReadonlyArray<readonly [string, string]> = [
-  ["OSTYPE", "linux-gnu"],
-  ["MACHTYPE", "x86_64-pc-linux-gnu"],
-  ["HOSTTYPE", "x86_64"],
-  ["HOSTNAME", "localhost"], // Match hostname command in sandboxed environment
-];
 
 /**
  * Logger interface for Bash execution logging.
@@ -418,20 +412,11 @@ export class Bash {
 
     this.useDefaultLayout = !options.cwd && !options.files;
     const cwd = options.cwd || (this.useDefaultLayout ? "/home/user" : "/");
-    // Use Map for env to prevent prototype pollution attacks
-    const env = new Map<string, string>([
-      ["HOME", this.useDefaultLayout ? "/home/user" : "/"],
-      ["PATH", DEFAULT_PATH],
-      ["IFS", " \t\n"],
-      ...HOST_VARS,
-      ["PWD", cwd],
-      ["OLDPWD", cwd],
-      ["OPTIND", "1"], // getopts option index
-      // Add user-provided env vars
-      ...Object.entries(options.env ?? {}),
-      ["BASH_VERSION", BASH_VERSION],
-    ]);
-    env.delete("BASH_VERSINFO");
+    const env = createInitialShellEnvironment({
+      cwd,
+      env: options.env,
+      defaultLayout: this.useDefaultLayout,
+    });
 
     // Create secure fetch: prefer explicit fetch, fall back to network config
     if (options.fetch) {
@@ -482,33 +467,8 @@ export class Bash {
       bashPid: options.processInfo?.pid ?? 1, // BASHPID starts as virtual PID
       nextVirtualPid: (options.processInfo?.pid ?? 1) + 1, // Counter for unique subshell PIDs
       currentLine: 1, // $LINENO starts at 1
-      options: {
-        errexit: false,
-        pipefail: false,
-        nounset: false,
-        xtrace: false,
-        verbose: false,
-        posix: false,
-        allexport: false,
-        noclobber: false,
-        noglob: false,
-        noexec: false,
-        vi: false,
-        emacs: false,
-      },
-      shoptOptions: {
-        extglob: false,
-        dotglob: false,
-        nullglob: false,
-        failglob: false,
-        globstar: false,
-        globskipdots: true, // Default to true in bash >=5.2
-        nocaseglob: false,
-        nocasematch: false,
-        expand_aliases: false,
-        lastpipe: false,
-        xpg_echo: false,
-      },
+      options: { ...INITIAL_SHELL_OPTIONS },
+      shoptOptions: { ...INITIAL_SHOPT_OPTIONS },
       inCondition: false,
       loopDepth: 0,
       // Export standard shell variables by default (matches bash behavior)
@@ -526,11 +486,6 @@ export class Bash {
       // Hash table for PATH command lookup caching
       hashTable: new Map(),
     };
-
-    // Initialize SHELLOPTS to reflect current shell options (initially empty string since all are false)
-    this.state.env.set("SHELLOPTS", buildShellopts(this.state.options));
-    // Initialize BASHOPTS to reflect current shopt options
-    this.state.env.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
 
     // Initialize filesystem with standard directories and device files
     // Only applies to InMemoryFs - other filesystems use real directories
