@@ -1,9 +1,9 @@
-import { BrokenPipeError } from "./interpreter/byte-pipe.js";
+import { BrokenPipeError } from "./interpreter/broken-pipe-error.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "./interpreter/errors.js";
-import { SecurityViolationError } from "./security/defense-in-depth-box.js";
+import { SecurityViolationError } from "./security/security-violation-error.js";
 
 /**
  * Rethrow errors that command-level recovery must never turn into ordinary

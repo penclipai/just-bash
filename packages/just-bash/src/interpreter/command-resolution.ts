@@ -13,7 +13,7 @@ import type { InterpreterState } from "./types.js";
  */
 export interface CommandResolutionContext {
   fs: IFileSystem;
-  state: InterpreterState;
+  state: Pick<InterpreterState, "cwd" | "env" | "hashTable">;
   commands: CommandRegistry;
 }
 
