@@ -123,8 +123,8 @@ describe("pipeline early stop", () => {
       "an alias",
       "shopt -s expand_aliases; alias head='head -n 50'\ngrep -rn hit . | head -2",
     ],
-    ["a substitution", "grep -rn $(echo hit) . | head -2"],
-    ["producer redirection", "grep -rn hit . 2>/dev/null | head -2"],
+    ["producer stdout redirection", "grep -rn hit . >/dev/null | head -2"],
+    ["producer 1>&2", "grep -rn hit . 1>&2 | head -2"],
     ["consumer file", "grep -rn hit . | head -2 /r/f001.txt"],
     ["consumer stdin redirection", "grep -rn hit . | head -2 < /r/f001.txt"],
     ["variable limit", "n=2; grep -rn hit . | head -n $n"],
@@ -140,6 +140,25 @@ describe("pipeline early stop", () => {
     }).exec(script);
     expect(result.stdout).toBe(reference.stdout);
     if (_label !== "three stages") expect(new Set(reads).size).toBe(all.length);
+  });
+
+  it.each([
+    "grep -rn $(echo hit) . | head -3",
+    "grep -rn hit . 2>/dev/null | head -3",
+    "grep -rn hit . 2>&1 | head -3",
+    "cat $(grep -rl hit . | sort) | head -3",
+  ])("%s still stops", async (script) => {
+    const { result, slow, reads } = await both(script);
+    expect(result.stdout).toBe(slow.stdout);
+    expect(reads.length).toBeLessThan(all.length * 2);
+  });
+
+  it("a command in the producer's substitution never takes the limit", async () => {
+    const env = new Bash({ files: many, cwd: "/r" });
+    const result = await env.exec(
+      'cat $(cat /r/f000.txt >/dev/null; echo /r/f001.txt) | head -1; echo "${PIPESTATUS[@]}"',
+    );
+    expect(result.stdout).toBe("hit 1 a\n141 0\n");
   });
 
   it("an empty producer still reaches head", async () => {

@@ -3,14 +3,16 @@
  * Pipeline stages still run one after another. When the next stage is a
  * consumer that provably reads only a prefix of its stdin (`head -n N`,
  * `head -c N`, `sed -n 'M,Np'`, `sed Nq`), a read-only producer (grep, cat,
- * find without side-effect actions) receives a `stdoutLimit` and may stop once
- * it has written more than that prefix. The consumer then sees a longer input
+ * or a registered rg) receives a `stdoutLimit` and may stop once it has
+ * written more than that prefix. The consumer then sees a longer input
  * than it reads, so its output is unchanged; the stopped producer reports 141
  * (128 + SIGPIPE) in PIPESTATUS, as bash does when head closes the pipe.
  *
- * Anything that could observe the difference disables it: pipefail, a
- * function or alias named like either command, substitutions in the
- * producer's words, producer redirections, and consumer input redirections.
+ * Anything that could observe the difference disables it: pipefail, `|&`,
+ * a function or alias named like either command, producer redirections other
+ * than stderr, and consumer operands or input redirections. Substitutions in
+ * the producer's words still run in full; they run one level deeper, so a
+ * command they dispatch never takes the limit.
  */
 import type { CommandNode, SimpleCommandNode, WordNode } from "../ast/types.js";
 import type { InterpreterContext } from "./types.js";
@@ -30,6 +32,8 @@ export interface StdoutLimit {
 
 export interface PendingStdoutLimit {
   name: string;
+  /** Substitutions in the producer's words run one level deeper. */
+  depth: number;
   limit: StdoutLimit;
   stopped: boolean;
   taken: boolean;
@@ -37,17 +41,6 @@ export interface PendingStdoutLimit {
 
 export const SIGPIPE_STATUS = 141;
 const PRODUCERS = new Set(["grep", "egrep", "fgrep", "cat", "rg"]);
-const FIND_SIDE_EFFECTS = new Set([
-  "-exec",
-  "-execdir",
-  "-ok",
-  "-okdir",
-  "-delete",
-  "-fprint",
-  "-fprint0",
-  "-fprintf",
-  "-fls",
-]);
 const MAX_PREFIX = 1_000_000;
 
 /** A word's value when it is fully literal (no expansion of any kind). */
@@ -122,11 +115,13 @@ export function consumerPrefix(
   return undefined;
 }
 
-function hasSubstitution(node: unknown): boolean {
-  return /"type":"(?:CommandSubstitution|ProcessSubstitution)"/.test(
-    JSON.stringify(node),
+/** Only stderr may be redirected: stdout must still feed the consumer. */
+const stderrOnly = (node: SimpleCommandNode) =>
+  node.redirections.every(
+    (r) =>
+      r.fd === 2 &&
+      (r.operator === ">" || r.operator === ">>" || r.operator === ">&"),
   );
-}
 
 function plainName(ctx: InterpreterContext, node: SimpleCommandNode) {
   const name = node.name && literal(node.name);
@@ -151,16 +146,9 @@ export function pipelineStdoutLimit(
   const consumer = commands[index + 1];
   if (producer?.type !== "SimpleCommand" || consumer?.type !== "SimpleCommand")
     return undefined;
-  if (producer.redirections.length || hasSubstitution(producer))
-    return undefined;
+  if (!stderrOnly(producer)) return undefined;
   const name = plainName(ctx, producer);
   if (!name || !PRODUCERS.has(name)) return undefined;
-  const args = producer.args.map(literal);
-  if (
-    name === "find" &&
-    args.some((arg) => arg === undefined || FIND_SIDE_EFFECTS.has(arg))
-  )
-    return undefined;
   const consumerName = plainName(ctx, consumer);
   if (!consumerName) return undefined;
   if (
@@ -174,6 +162,7 @@ export function pipelineStdoutLimit(
   if ((prefix.lines ?? prefix.bytes ?? 0) > MAX_PREFIX) return undefined;
   const pending: PendingStdoutLimit = {
     name,
+    depth: ctx.substitutionDepth ?? 0,
     stopped: false,
     taken: false,
     limit: createStdoutLimit(prefix, () => {
