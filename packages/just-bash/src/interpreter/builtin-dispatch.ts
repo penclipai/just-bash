@@ -1,5 +1,6 @@
 import { waitForShellJobs } from "./background-wait.js";
 import { missingCommandHint } from "./missing-command-hints.js";
+import { takeStdoutLimit } from "./pipeline-early-stop.js";
 import { automaTrapBuiltin } from "./traps.js";
 /**
  * Builtin Command Dispatch
@@ -975,6 +976,7 @@ export async function executeExternalCommand(
     return { ...result, ...streamed.build(result.exitCode) };
   };
   const cmdCtx: RuntimeCommandContext = {
+    stdoutLimit: takeStdoutLimit(ctx, commandName),
     getShellJobSnapshot: () => ctx.executionScope.shellJobs.snapshot(ctx.state),
     writeOutput: async (text, stream, kind = "text") => {
       if (

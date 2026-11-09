@@ -661,8 +661,15 @@ export const grepCommand: RuntimeCommand = {
         ? 1
         : maxCount;
     let quietMatched = false;
-    for (let i = 0; i < filesToSearch.length; i += BATCH_SIZE) {
-      const batch = filesToSearch.slice(i, i + BATCH_SIZE);
+    // Under `| head`, start with small windows so a prefix needs few reads.
+    const stdoutLimit = ctx.stdoutLimit;
+    let batchSize = stdoutLimit ? 4 : BATCH_SIZE;
+    fileBatches: for (
+      let i = 0;
+      i < filesToSearch.length;
+      i += batchSize, batchSize = Math.min(BATCH_SIZE, batchSize * 2)
+    ) {
+      const batch = filesToSearch.slice(i, i + batchSize);
 
       // Process batch in parallel
       const results = await Promise.all(
@@ -835,6 +842,10 @@ export const grepCommand: RuntimeCommand = {
           } else if (countOnly && !filesWithMatches) {
             stdout += result.output;
           }
+        }
+        if (stdoutLimit?.reached(stdout)) {
+          stdoutLimit.stop();
+          break fileBatches;
         }
       }
     }

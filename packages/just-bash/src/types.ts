@@ -1,6 +1,7 @@
 import type { ByteString } from "./encoding.js";
 import type { CommandExecutionBudget } from "./execution-scope.js";
 import type { IFileSystem } from "./fs/interface.js";
+import type { StdoutLimit } from "./interpreter/pipeline-early-stop.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
 
@@ -267,6 +268,12 @@ export interface RuntimeCommandContext {
   stdinProvided?: boolean;
   /** Whether fd 0 is closed or a character device, excluding implicit rg stdin search. @internal */
   stdinUnavailable?: boolean;
+  /**
+   * Set when the next pipeline stage reads only a prefix (`| head -n N`).
+   * Read-only producers may stop once `reached()` and call `stop()`.
+   * @internal
+   */
+  stdoutLimit?: StdoutLimit;
   /**
    * Execution limits configuration.
    * Fully resolved by Bash before a command is invoked.

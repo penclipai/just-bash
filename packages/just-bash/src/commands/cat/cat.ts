@@ -159,6 +159,11 @@ export const catCommand: RuntimeCommand = {
         if (file !== "-") accountFileInput(ctx, contentLength, "cat");
         aggregateInputBytes += contentLength;
         stream += rawContent;
+        // `cat files | head`: later files are never read by the consumer.
+        if (!transform && ctx.stdoutLimit?.reached(stream)) {
+          ctx.stdoutLimit.stop();
+          break;
+        }
       } catch (error) {
         rethrowFatalExecutionError(error);
         stderr += `cat: ${file}: ${fsErrorMessage(error)}\n`;

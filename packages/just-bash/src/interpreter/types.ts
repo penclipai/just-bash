@@ -1,4 +1,5 @@
 import type { OutputEndpoints } from "./output-endpoints.js";
+import type { PendingStdoutLimit } from "./pipeline-early-stop.js";
 /**
  * Interpreter Types
  */
@@ -336,6 +337,8 @@ export interface IOState {
   groupStdin?: string;
   /** Descriptor that supplied `groupStdin`, when it has a shared position. */
   groupStdinSourceFd?: number;
+  /** Prefix limit offered to the current pipeline producer (`x | head`). */
+  pipeStdoutLimit?: PendingStdoutLimit;
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
   /**

@@ -1,4 +1,5 @@
 import { outputSegments } from "../execution-output.js";
+import { pipelineStdoutLimit, SIGPIPE_STATUS } from "./pipeline-early-stop.js";
 import { automaTrapPipeline } from "./traps.js";
 /**
  * Pipeline Execution
@@ -102,6 +103,11 @@ export async function executePipeline(
 
     let result: ExecResult;
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
+    const outerStdoutLimit = ctx.state.pipeStdoutLimit;
+    const stdoutLimit = isLast
+      ? undefined
+      : pipelineStdoutLimit(ctx, node.commands, i, pipeStderr);
+    ctx.state.pipeStdoutLimit = stdoutLimit;
     try {
       if (!isLast) restoreOutput = bindPipelineOutput(ctx, pipeStderr);
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
@@ -155,6 +161,7 @@ export async function executePipeline(
         throw error;
       }
     } finally {
+      ctx.state.pipeStdoutLimit = outerStdoutLimit;
       restoreOutput?.();
       if (isMultiCommandPipeline) {
         // The first stage held the shell's stdin, so whatever it consumed
@@ -210,6 +217,9 @@ export async function executePipeline(
         },
       };
     }
+
+    // A producer that stopped for `| head` reports SIGPIPE, as in bash.
+    if (stdoutLimit?.stopped) result = { ...result, exitCode: SIGPIPE_STATUS };
 
     // Track exit code for PIPESTATUS
     pipestatusExitCodes.push(result.exitCode);
