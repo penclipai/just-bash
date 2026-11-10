@@ -184,6 +184,14 @@ function wrapFileSystem(
     );
   }
 
+  if (fs.cachedFileMissingPrefix) {
+    wrappedFs.cachedFileMissingPrefix = wrapFunction(
+      fs.cachedFileMissingPrefix.bind(fs),
+      requireDefenseContext,
+      component,
+      "fs.cachedFileMissingPrefix",
+    );
+  }
   if (fs.readSnapshotTree) {
     wrappedFs.readSnapshotTree = wrapFunction(
       fs.readSnapshotTree.bind(fs),

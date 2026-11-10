@@ -169,7 +169,10 @@ export function withUmaskFileSystem(
   if (fs.readFileBytes) facade.readFileBytes = fs.readFileBytes.bind(fs);
   if (fs.readdirWithFileTypes)
     facade.readdirWithFileTypes = fs.readdirWithFileTypes.bind(fs);
-  if (fs.readSnapshotTree) facade.readSnapshotTree = fs.readSnapshotTree.bind(fs);
+  if (fs.cachedFileMissingPrefix)
+    facade.cachedFileMissingPrefix = fs.cachedFileMissingPrefix.bind(fs);
+  if (fs.readSnapshotTree)
+    facade.readSnapshotTree = fs.readSnapshotTree.bind(fs);
   if (fs.createExclusive) facade.createExclusive = fs.createExclusive.bind(fs);
   shareFileSystemIdentity(facade, fs);
   registerOutputFileAppender(

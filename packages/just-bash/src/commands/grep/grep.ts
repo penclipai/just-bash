@@ -2,11 +2,7 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { ResourceLease } from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
-import { fromBuffer } from "../../fs/encoding.js";
-import {
-  ExecutionAbortedError,
-  ExecutionLimitError,
-} from "../../interpreter/errors.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
 import type {
   ExecResult,
@@ -22,57 +18,13 @@ import {
   type RegexMode,
   searchContent,
 } from "../search-engine/index.js";
-
-/**
- * The name GNU grep prints for the `-` operand. It appears wherever a real
- * file name would: the multi-file `file:line` prefix, `-l`/`-L` listings and
- * `-c` counts.
- */
-const STDIN_FILENAME = "(standard input)";
-
-/** File entry with optional type info from glob expansion */
-interface FileEntry {
-  path: string;
-  isFile?: boolean; // undefined means we need to stat
-  /** True for the `-` operand, which names standard input instead of a file. */
-  isStdin?: boolean;
-  /**
-   * True when an earlier `-` already drained stdin. stdin is a stream, so the
-   * second `-` of `grep pat - -` reads EOF and contributes nothing.
-   */
-  stdinAtEof?: boolean;
-}
-
-interface GrepTraversalBudget {
-  operations: number;
-  results: number;
-  maxOperations: number;
-  maxResults: number;
-}
+import { asciiPrefixFor, readGrepText } from "./grep-byte-prefilter.js";
+import { grepFileBatches } from "./grep-stream-walk.js";
 
 function getMatcherWorkLimit(ctx: RuntimeCommandContext): number {
   const loopLimit = ctx.limits.maxLoopIterations;
   const arrayLimit = ctx.limits.maxArrayElements;
   return Math.max(loopLimit, Math.min(arrayLimit, loopLimit * 10));
-}
-
-function useTraversalOperation(budget: GrepTraversalBudget): void {
-  if (++budget.operations > budget.maxOperations) {
-    throw new ExecutionLimitError(
-      `grep: glob operation limit exceeded (${budget.maxOperations})`,
-      "glob_operations",
-    );
-  }
-}
-
-function addTraversalResult(budget: GrepTraversalBudget): void {
-  if (budget.results >= budget.maxResults) {
-    throw new ExecutionLimitError(
-      `grep: array element limit exceeded (${budget.maxResults})`,
-      "array_elements",
-    );
-  }
-  budget.results++;
 }
 
 /**
@@ -191,6 +143,7 @@ export const grepCommand: RuntimeCommand = {
     let filesWithMatches = false;
     let filesWithoutMatch = false;
     let recursive = false;
+    let followLinks = false;
     let wholeWord = false;
     let lineRegexp = false;
     let extendedRegex = false;
@@ -337,9 +290,10 @@ export const grepCommand: RuntimeCommand = {
             filesWithMatches = true;
           else if (flag === "L" || flag === "--files-without-match")
             filesWithoutMatch = true;
-          else if (flag === "r" || flag === "R" || flag === "--recursive")
+          else if (flag === "r" || flag === "R" || flag === "--recursive") {
             recursive = true;
-          else if (flag === "w" || flag === "--word-regexp") wholeWord = true;
+            followLinks = flag === "R";
+          } else if (flag === "w" || flag === "--word-regexp") wholeWord = true;
           else if (flag === "x" || flag === "--line-regexp") lineRegexp = true;
           else if (flag === "E" || flag === "--extended-regexp")
             extendedRegex = true;
@@ -553,107 +507,16 @@ export const grepCommand: RuntimeCommand = {
     let anyMatch = false;
     let anyError = false;
 
-    // Collect all files to search (expand globs first)
-    // FileEntry includes type info when available to skip stat calls
-    const filesToSearch: FileEntry[] = [];
-    const traversalBudget: GrepTraversalBudget = {
-      operations: 0,
-      results: 0,
-      maxOperations: ctx.limits.maxGlobOperations,
-      maxResults: ctx.limits.maxArrayElements,
-    };
-    const appendFiles = (entries: FileEntry[]): void => {
-      if (entries.length > traversalBudget.maxResults - filesToSearch.length) {
-        throw new ExecutionLimitError(
-          `grep: array element limit exceeded (${traversalBudget.maxResults})`,
-          "array_elements",
-        );
-      }
-      filesToSearch.push(...entries);
-    };
-    /**
-     * True once a `-` operand has claimed stdin. stdin is a stream, so only the
-     * first reader sees its contents.
-     */
-    let stdinConsumed = false;
-    /**
-     * True once a real path is queued. GNU only forces the file-name prefix
-     * under -r when recursion can actually descend into a directory, and `-` is
-     * never a directory: `grep -r pat -` prints bare lines.
-     */
-    let hasFileTarget = false;
-    for (const file of files) {
-      if (file === "-") {
-        // GNU treats `-` as an operand naming standard input. It bypasses glob
-        // expansion, recursion and --include/--exclude entirely: those all
-        // filter on a file name, and stdin has none.
-        if (filesToSearch.length >= traversalBudget.maxResults) {
-          throw new ExecutionLimitError(
-            `grep: array element limit exceeded (${traversalBudget.maxResults})`,
-            "array_elements",
-          );
-        }
-        filesToSearch.push({
-          path: STDIN_FILENAME,
-          isFile: true,
-          isStdin: true,
-          stdinAtEof: stdinConsumed,
-        });
-        stdinConsumed = true;
-        continue;
-      }
-      hasFileTarget = true;
-      // Check if this is a glob pattern
-      if (file.includes("*") || file.includes("?") || file.includes("[")) {
-        const expanded = await expandGlobPatternWithTypes(
-          file,
-          ctx,
-          traversalBudget,
-        );
-        if (recursive) {
-          for (const f of expanded) {
-            const recursiveExpanded = await expandRecursiveWithTypes(
-              f.path,
-              ctx,
-              includePatterns,
-              excludePatterns,
-              excludeDirPatterns,
-              f.isFile,
-              traversalBudget,
-            );
-            appendFiles(recursiveExpanded);
-          }
-        } else {
-          appendFiles(expanded);
-        }
-      } else if (recursive) {
-        const expanded = await expandRecursiveWithTypes(
-          file,
-          ctx,
-          includePatterns,
-          excludePatterns,
-          excludeDirPatterns,
-          undefined,
-          traversalBudget,
-        );
-        appendFiles(expanded);
-      } else {
-        if (filesToSearch.length >= traversalBudget.maxResults) {
-          throw new ExecutionLimitError(
-            `grep: array element limit exceeded (${traversalBudget.maxResults})`,
-            "array_elements",
-          );
-        }
-        filesToSearch.push({ path: file });
-      }
-    }
-
-    // Determine if we should show filename (after glob expansion)
-    const showFilename =
-      (filesToSearch.length > 1 || (recursive && hasFileTarget)) && !noFilename;
-
-    // Process files in parallel batches for better performance
-    const BATCH_SIZE = 50;
+    const { batches, showFilename } = await grepFileBatches(ctx, files, {
+      recursive,
+      followLinks,
+      includePatterns,
+      excludePatterns,
+      excludeDirPatterns,
+      noFilename,
+      stdinUsedForPatterns,
+      quietMode,
+    });
     // -q/-l/-L only need to know whether a file matches: stop each file at
     // its first match, and once -q has a match skip the rest of the batch.
     const fileMaxCount =
@@ -663,17 +526,12 @@ export const grepCommand: RuntimeCommand = {
     let quietMatched = false;
     // Under `| head`, start with small windows so a prefix needs few reads.
     const stdoutLimit = ctx.stdoutLimit;
-    let batchSize = stdoutLimit ? 4 : BATCH_SIZE;
-    fileBatches: for (
-      let i = 0;
-      i < filesToSearch.length;
-      i += batchSize, batchSize = Math.min(BATCH_SIZE, batchSize * 2)
-    ) {
-      const batch = filesToSearch.slice(i, i + batchSize);
-
+    const bytePrefix = invertMatch ? undefined : asciiPrefixFor(preFilter);
+    fileBatches: for await (const batch of batches) {
       // Process batch in parallel
       const results = await Promise.all(
         batch.map(async (fileEntry) => {
+          if (fileEntry.warning) return { warning: fileEntry.warning };
           const file = fileEntry.path;
           const basename = file.split("/").pop() || file;
 
@@ -740,20 +598,12 @@ export const grepCommand: RuntimeCommand = {
                 stat.size * 3,
                 "grep",
               );
-              ctx.executionScope?.throwIfAborted("grep");
-              if (ctx.signal?.aborted) throw new ExecutionAbortedError();
-              const bytes = await ctx.fs.readFileBuffer(filePath);
-              ctx.executionScope?.throwIfAborted("grep");
-              if (ctx.signal?.aborted) throw new ExecutionAbortedError();
-              if (bytes.byteLength > stat.size) {
-                throw new ExecutionLimitError(
-                  "grep: file grew while being read",
-                  "string_length",
-                );
-              }
-              ctx.executionScope?.consumeInput(bytes.byteLength, "grep");
-              // Match IFileSystem.readFile's UTF-8 replacement/BOM behavior.
-              content = fromBuffer(bytes);
+              content = await readGrepText(
+                ctx,
+                filePath,
+                stat.size,
+                bytePrefix,
+              );
             }
 
             // File-level preFilter: skip searchContent entirely when no needle exists in file.
@@ -813,6 +663,10 @@ export const grepCommand: RuntimeCommand = {
       for (const res of results) {
         if (res === null) continue;
 
+        if (res.warning) {
+          stderr += res.warning;
+          continue;
+        }
         if ("error" in res && res.error) {
           stderr += res.error;
           if (!res.error.includes("Is a directory")) {
@@ -877,280 +731,6 @@ export const grepCommand: RuntimeCommand = {
     };
   },
 };
-
-/** Safety limit to prevent stack overflow on deeply nested directories */
-const MAX_GREP_DEPTH = 256;
-
-async function expandRecursiveGlob(
-  baseDir: string,
-  afterGlob: string,
-  ctx: RuntimeCommandContext,
-  result: string[],
-  budget: GrepTraversalBudget,
-  depth = 0,
-): Promise<void> {
-  if (depth >= MAX_GREP_DEPTH) return;
-  const fullBasePath = ctx.fs.resolvePath(ctx.cwd, baseDir);
-
-  try {
-    useTraversalOperation(budget);
-    const stat = await ctx.fs.stat(fullBasePath);
-
-    if (!stat.isDirectory) {
-      // Check if the file matches afterGlob pattern
-      const filename = baseDir.split("/").pop() || "";
-      if (afterGlob) {
-        const pattern = afterGlob.replace(/^\//, "");
-        if (matchGlob(filename, pattern, { stripQuotes: true })) {
-          addTraversalResult(budget);
-          result.push(baseDir);
-        }
-      }
-      return;
-    }
-
-    // Check files in current directory
-    useTraversalOperation(budget);
-    const entries = await ctx.fs.readdir(fullBasePath);
-    for (const entry of entries) {
-      const entryPath = baseDir === "." ? entry : `${baseDir}/${entry}`;
-      const fullEntryPath = ctx.fs.resolvePath(ctx.cwd, entryPath);
-      useTraversalOperation(budget);
-      const entryStat = await ctx.fs.stat(fullEntryPath);
-
-      if (entryStat.isDirectory) {
-        // Recurse into directory
-        await expandRecursiveGlob(
-          entryPath,
-          afterGlob,
-          ctx,
-          result,
-          budget,
-          depth + 1,
-        );
-      } else if (afterGlob) {
-        // Check if file matches afterGlob pattern
-        const pattern = afterGlob.replace(/^\//, "");
-        if (matchGlob(entry, pattern, { stripQuotes: true })) {
-          addTraversalResult(budget);
-          result.push(entryPath);
-        }
-      }
-    }
-  } catch (error) {
-    rethrowFatalExecutionError(error);
-    // Ignore errors
-  }
-}
-
-/**
- * Optimized glob expansion that returns FileEntry with type info
- * Uses readdirWithFileTypes when available to avoid stat calls
- */
-async function expandGlobPatternWithTypes(
-  pattern: string,
-  ctx: RuntimeCommandContext,
-  budget: GrepTraversalBudget,
-): Promise<FileEntry[]> {
-  const result: FileEntry[] = [];
-
-  // Find the directory part and the glob part
-  const lastSlash = pattern.lastIndexOf("/");
-  let dirPath: string;
-  let globPart: string;
-
-  if (lastSlash === -1) {
-    dirPath = ctx.cwd;
-    globPart = pattern;
-  } else {
-    dirPath = pattern.slice(0, lastSlash) || "/";
-    globPart = pattern.slice(lastSlash + 1);
-  }
-
-  // Handle ** (recursive glob) - fall back to old method
-  if (pattern.includes("**")) {
-    const oldResult: string[] = [];
-    const parts = pattern.split("**");
-    const baseDir = parts[0].replace(/\/$/, "") || ".";
-    const afterGlob = parts[1] || "";
-    await expandRecursiveGlob(baseDir, afterGlob, ctx, oldResult, budget);
-    return oldResult.map((p) => ({ path: p }));
-  }
-
-  // Resolve the directory path
-  const fullDirPath = ctx.fs.resolvePath(ctx.cwd, dirPath);
-
-  try {
-    // Use readdirWithFileTypes if available for better performance
-    if (ctx.fs.readdirWithFileTypes) {
-      useTraversalOperation(budget);
-      const entries = await ctx.fs.readdirWithFileTypes(fullDirPath);
-      for (const entry of entries) {
-        useTraversalOperation(budget);
-        if (matchGlob(entry.name, globPart, { stripQuotes: true })) {
-          const fullPath =
-            lastSlash === -1 ? entry.name : `${dirPath}/${entry.name}`;
-          addTraversalResult(budget);
-          result.push({
-            path: fullPath,
-            isFile: entry.isFile,
-          });
-        }
-      }
-    } else {
-      // Fall back to regular readdir
-      useTraversalOperation(budget);
-      const entries = await ctx.fs.readdir(fullDirPath);
-      for (const entry of entries) {
-        useTraversalOperation(budget);
-        if (matchGlob(entry, globPart, { stripQuotes: true })) {
-          const fullPath = lastSlash === -1 ? entry : `${dirPath}/${entry}`;
-          addTraversalResult(budget);
-          result.push({ path: fullPath });
-        }
-      }
-    }
-  } catch (error) {
-    rethrowFatalExecutionError(error);
-    // Directory doesn't exist - return empty
-  }
-
-  return result.sort((a, b) => a.path.localeCompare(b.path));
-}
-
-/**
- * Optimized recursive expansion that returns FileEntry with type info
- * Uses readdirWithFileTypes when available to avoid stat calls
- */
-async function expandRecursiveWithTypes(
-  path: string,
-  ctx: RuntimeCommandContext,
-  includePatterns: string[] = [],
-  excludePatterns: string[] = [],
-  excludeDirPatterns: string[] = [],
-  knownIsFile?: boolean,
-  budget: GrepTraversalBudget = {
-    operations: 0,
-    results: 0,
-    maxOperations: ctx.limits.maxGlobOperations,
-    maxResults: ctx.limits.maxArrayElements,
-  },
-  result: FileEntry[] = [],
-  depth = 0,
-): Promise<FileEntry[]> {
-  if (depth >= MAX_GREP_DEPTH) return result;
-  const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
-
-  try {
-    // Determine if it's a file or directory
-    let isFile: boolean;
-    let isDirectory: boolean;
-
-    if (knownIsFile !== undefined) {
-      isFile = knownIsFile;
-      isDirectory = !knownIsFile;
-    } else {
-      useTraversalOperation(budget);
-      const stat = await ctx.fs.stat(fullPath);
-      isFile = stat.isFile;
-      isDirectory = stat.isDirectory;
-    }
-
-    if (isFile) {
-      const basename = path.split("/").pop() || path;
-
-      // Check exclude patterns
-      if (excludePatterns.length > 0) {
-        if (
-          excludePatterns.some((p) =>
-            matchGlob(basename, p, { stripQuotes: true }),
-          )
-        ) {
-          return result;
-        }
-      }
-
-      // Check include patterns
-      if (includePatterns.length > 0) {
-        if (
-          !includePatterns.some((p) =>
-            matchGlob(basename, p, { stripQuotes: true }),
-          )
-        ) {
-          return result;
-        }
-      }
-      addTraversalResult(budget);
-      result.push({ path, isFile: true });
-      return result;
-    }
-
-    if (!isDirectory) {
-      return result;
-    }
-
-    // Check if directory should be excluded
-    const dirName = path.split("/").pop() || path;
-    if (excludeDirPatterns.length > 0) {
-      if (
-        excludeDirPatterns.some((p) =>
-          matchGlob(dirName, p, { stripQuotes: true }),
-        )
-      ) {
-        return result;
-      }
-    }
-
-    // GNU grep (fts) drops trailing slashes before joining "dir/name"
-    const dirPrefix = `${path.replace(/\/+$/, "")}/`;
-
-    // Use readdirWithFileTypes if available
-    if (ctx.fs.readdirWithFileTypes) {
-      useTraversalOperation(budget);
-      const entries = await ctx.fs.readdirWithFileTypes(fullPath);
-      for (const entry of entries) {
-        useTraversalOperation(budget);
-
-        const entryPath = `${dirPrefix}${entry.name}`;
-        await expandRecursiveWithTypes(
-          entryPath,
-          ctx,
-          includePatterns,
-          excludePatterns,
-          excludeDirPatterns,
-          entry.isFile,
-          budget,
-          result,
-          depth + 1,
-        );
-      }
-    } else {
-      useTraversalOperation(budget);
-      const entries = await ctx.fs.readdir(fullPath);
-      for (const entry of entries) {
-        useTraversalOperation(budget);
-
-        const entryPath = `${dirPrefix}${entry}`;
-        await expandRecursiveWithTypes(
-          entryPath,
-          ctx,
-          includePatterns,
-          excludePatterns,
-          excludeDirPatterns,
-          undefined,
-          budget,
-          result,
-          depth + 1,
-        );
-      }
-    }
-  } catch (error) {
-    rethrowFatalExecutionError(error);
-    // Ignore errors
-  }
-
-  return result;
-}
 
 // fgrep is equivalent to grep -F
 export const fgrepCommand: RuntimeCommand = {

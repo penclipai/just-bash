@@ -52,6 +52,7 @@ export {
   textOutput,
   unsafeBytesFromLatin1,
 } from "./encoding.js";
+export { containsAsciiBytes } from "./fs/ascii-search.js";
 export { InMemoryFs } from "./fs/in-memory-fs/index.js";
 export type {
   BufferEncoding,

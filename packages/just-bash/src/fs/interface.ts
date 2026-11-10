@@ -183,6 +183,14 @@ export interface IFileSystem {
    */
   readFileBuffer(path: string): Promise<Uint8Array>;
 
+  /** True only when an immutable, currently readable cached body of the
+   * given size lacks these 1–4 ASCII bytes. False also covers cache misses. */
+  cachedFileMissingPrefix?(
+    path: string,
+    ascii: string,
+    size: number,
+  ): Promise<boolean>;
+
   /**
    * Write content to a file, creating it if it doesn't exist
    */
@@ -267,11 +275,13 @@ export interface IFileSystem {
    * for incomplete, unreadable, or stale trees so callers use normal FS reads.
    * A maxDepth may truncate the view at that depth (root 0), without
    * requiring its directories to be readable below that boundary.
+   * With cachedOnly, decline if answering would require reading live directories.
    * Must enforce the same path scope and permissions as lstat and readdir.
    */
   readSnapshotTree?(
     path: string,
     maxDepth?: number,
+    cachedOnly?: boolean,
   ): Promise<string | undefined>;
 
   /**

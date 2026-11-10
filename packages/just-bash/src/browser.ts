@@ -28,6 +28,7 @@ export type {
   LazyCommand,
 } from "./custom-commands.js";
 export { createCommandContext, defineCommand } from "./custom-commands.js";
+export { containsAsciiBytes } from "./fs/ascii-search.js";
 export { InMemoryFs } from "./fs/in-memory-fs/index.js";
 export type {
   BufferEncoding,
