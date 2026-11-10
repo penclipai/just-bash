@@ -26,6 +26,7 @@ export async function printSnapshotTree(
       : searchPath;
   const listing = await ctx.fs.readSnapshotTree?.(
     ctx.fs.resolvePath(ctx.cwd, start),
+    options.maxDepth,
   );
   if (listing === undefined) return false;
   const entries: SnapshotTreeEntry[] = JSON.parse(listing);
@@ -66,7 +67,9 @@ export async function printSnapshotTree(
   for (const [depth, basename, type] of entries) {
     if (depth > options.maxDepth) continue;
     leaveTo(depth);
-    if (depth > 0) options.traversalBudget.discover(1);
+    // The provider already materialized these rows. Reserve each child against
+    // the entry limit; visit charges its one synchronous evaluation.
+    if (depth > 0) options.traversalBudget.reserve(1);
     options.traversalBudget.visit(depth);
     const parent = directories[depth - 1];
     const path = parent

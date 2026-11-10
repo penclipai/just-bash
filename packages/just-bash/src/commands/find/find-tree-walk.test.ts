@@ -63,6 +63,7 @@ it("matches native find order and name/type/depth predicates", async () => {
       });
     }
     expect(readSnapshotTree).toHaveBeenCalledTimes(4);
+    expect(readSnapshotTree).toHaveBeenLastCalledWith("/project", 1);
     expect(list).not.toHaveBeenCalled();
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -124,4 +125,26 @@ it("charges traversal and preserves whole lines on overflow", async () => {
   const failed = await capped.exec("find /p");
   expect(failed.exitCode).not.toBe(0);
   expect(failed.stdout).toBe("/p\n");
+});
+
+it("charges one traversal operation per materialized row", async () => {
+  const listing = JSON.stringify([
+    [0, "tree", "d"],
+    [1, "leaf", "f"],
+  ]);
+  const fs = Object.assign(new InMemoryFs(), {
+    readSnapshotTree: async () => listing,
+  });
+  const run = (limit: number) =>
+    new Bash({
+      fs,
+      executionLimitProfile: "hardened",
+      executionLimits: { maxTraversalWork: limit },
+    }).exec("find /tree | wc -l");
+  expect(await run(2)).toMatchObject({
+    stdout: "2\n",
+    stderr: "",
+    exitCode: 0,
+  });
+  expect((await run(1)).exitCode).not.toBe(0);
 });
