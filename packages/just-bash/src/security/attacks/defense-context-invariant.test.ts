@@ -66,6 +66,7 @@ describeDefense("Defense context invariant", () => {
       readdir: true,
       readdirWithFileTypes: true,
       readlink: true,
+      cachedFileMissingPrefix: true,
       readSnapshotTree: true,
       realpath: true,
       resolvePath: true,
@@ -77,6 +78,7 @@ describeDefense("Defense context invariant", () => {
     };
 
     const fs = Object.assign(new InMemoryFs(), {
+      cachedFileMissingPrefix: async () => false,
       readSnapshotTree: async () => undefined,
     });
     const wrapped = createDefenseAwareCommandContext(
