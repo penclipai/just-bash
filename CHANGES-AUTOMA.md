@@ -457,3 +457,6 @@ is not a private curl session jar. Manual Cookie headers remain unsupported.
   ordinary failure and `exit`, preserving the foreground status. Stop, resource
   failure and unrecoverable errors revoke and drain the tree before close.
   There are no persistent daemons or host signal/process-table capabilities.
+
+Literal `git grep` receives the read-only pipeline prefix limit for a following
+`head` or supported `sed` consumer, under the existing redirection and pipefail rules.

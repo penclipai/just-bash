@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defineCommand } from "../custom-commands.js";
 import { Bash } from "../Bash.js";
 import { InMemoryFs } from "../fs/in-memory-fs/index.js";
 import { consumerPrefix } from "./pipeline-early-stop.js";
@@ -88,6 +89,24 @@ describe("pipeline early stop", () => {
     expect(reads.length).toBeLessThan(all.length / 4);
   });
 
+  it("offers a prefix only to literal git grep", async () => {
+    const observed: boolean[] = [];
+    const git = defineCommand("git", async (_args, ctx) => {
+      observed.push(!!ctx.stdoutLimit);
+      const stdout = "one\ntwo\n";
+      if (ctx.stdoutLimit?.reached(stdout)) ctx.stdoutLimit.stop();
+      return { stdout, stderr: "", exitCode: 0 };
+    });
+    const bash = new Bash({ customCommands: [git] });
+    const result = await bash.exec(
+      'git grep pat | head -1; echo "${PIPESTATUS[@]}"',
+    );
+    expect(result.stdout).toBe("one\n141 0\n");
+    await bash.exec('verb=grep; git "$verb" pat | head -1');
+    await bash.exec("git add file | head -1");
+    await bash.exec("git grep pat");
+    expect(observed).toEqual([true, false, false, false]);
+  });
   it("cat of many files stops after the prefix", async () => {
     const script = `cat ${all.join(" ")} | head -5`;
     const { result, slow, reads } = await both(script);

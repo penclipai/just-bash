@@ -3,7 +3,7 @@
  * Pipeline stages still run one after another. When the next stage is a
  * consumer that provably reads only a prefix of its stdin (`head -n N`,
  * `head -c N`, `sed -n 'M,Np'`, `sed Nq`), a read-only producer (grep, cat,
- * or a registered rg) receives a `stdoutLimit` and may stop once it has
+ * a registered rg, or literal git grep) receives a `stdoutLimit` and may stop once it has
  * written more than that prefix. The consumer then sees a longer input
  * than it reads, so its output is unchanged; the stopped producer reports 141
  * (128 + SIGPIPE) in PIPESTATUS, as bash does when head closes the pipe.
@@ -148,7 +148,12 @@ export function pipelineStdoutLimit(
     return undefined;
   if (!stderrOnly(producer)) return undefined;
   const name = plainName(ctx, producer);
-  if (!name || !PRODUCERS.has(name)) return undefined;
+  if (!name) return undefined;
+  const gitGrep =
+    name === "git" &&
+    producer.args.length > 0 &&
+    literal(producer.args[0]) === "grep";
+  if (!gitGrep && !PRODUCERS.has(name)) return undefined;
   const consumerName = plainName(ctx, consumer);
   if (!consumerName) return undefined;
   if (
