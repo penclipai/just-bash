@@ -48,10 +48,15 @@ function assertConversionSize(
   }
 }
 
+const nonAsciiCodeUnit = /[\u0080-\uffff]/;
+
 /** Return UTF-8 byte length without allocating an encoded copy. */
 export function utf8ByteLength(value: string): number {
   // Deliberately not Buffer.byteLength: browser Buffer polyfills implement it
   // by materializing an encoded array, which dominated large sort/uniq pipes.
+  // Long ASCII pipeline segments have the same byte and code unit counts.
+  if (value.length >= 4096 && !nonAsciiCodeUnit.test(value))
+    return value.length;
   let bytes = 0;
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index);

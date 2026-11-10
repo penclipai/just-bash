@@ -31,6 +31,8 @@ describe.each([false, true])("byte conversion (browser: %s)", (browser) => {
     const cases = [
       "",
       "ASCII\0\x7f",
+      "x".repeat(4096),
+      `${"x".repeat(4096)}水😀\ud800`,
       "é水😀\ud800x\udc00",
       Array.from({ length: 65536 }, (_, code) =>
         String.fromCharCode(code),

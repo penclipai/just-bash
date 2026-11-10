@@ -184,6 +184,15 @@ function wrapFileSystem(
     );
   }
 
+  if (fs.readSnapshotTree) {
+    wrappedFs.readSnapshotTree = wrapFunction(
+      fs.readSnapshotTree.bind(fs),
+      requireDefenseContext,
+      component,
+      "fs.readSnapshotTree",
+    );
+  }
+
   // createExclusive is optional on IFileSystem, and dropping it here would be
   // silent and security-relevant: callers treat an absent method as a
   // filesystem that cannot create atomically, so an unwrapped method would
