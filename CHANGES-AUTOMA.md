@@ -14,6 +14,7 @@ Automa records the exact fork commit, build inputs and artifact hashes in
 | xargs-flags and parallel output sink | `src/commands/xargs/` | Attached options, logical lines, replacement, isolated ordered batches |
 | rg-sort and globstar | `src/commands/rg/`, optional times in `src/fs/interface.ts` | Real metadata sorting, include/exclude and directory matching |
 | find symlink type and starting points | `src/commands/find/` | `-type l`, dangling links and physical traversal within existing FS boundaries |
+| find snapshot traversal | `src/commands/find/find-tree-walk.ts`, optional `IFileSystem.readSnapshotTree` | Physical DFS on complete, scoped listings; GNU find output, fallback diagnostics and shared traversal/output limits |
 | sort-c-locale, sort keys, uniq count | `src/commands/{sort,uniq}/` | C/POSIX byte order, key modifiers, unique equality and formatting |
 | od-read-bytes, checksum-operands | `src/commands/{od,checksum}/` | Byte bounds, `--`, missing/mixed operands and diagnostic streams |
 | jq inline path updates, interpolation, equality and array difference | `src/commands/query-engine/` | Exact paths, literal escapes, unordered object equality and bounded comparison |

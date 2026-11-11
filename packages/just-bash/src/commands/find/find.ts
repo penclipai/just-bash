@@ -84,6 +84,7 @@ import {
   parseWidthPrecision,
   processEscapes,
 } from "../printf/escapes.js";
+import { printSnapshotTree } from "./find-tree-walk.js";
 import {
   collectNewerRefs,
   evaluateExpressionWithPrune,
@@ -355,6 +356,30 @@ export const findCommand: RuntimeCommand = {
     // Check if readdirWithFileTypes is available (for optimization)
     const hasReaddirWithFileTypes =
       typeof ctx.fs.readdirWithFileTypes === "function";
+
+    const finish = (): ExecResult =>
+      output?.build(exitCode) ?? {
+        stdout: stdoutChunks.join(""),
+        stderr: stderrChunks.join(""),
+        exitCode,
+      };
+    if (
+      searchPaths.length === 1 &&
+      maxDepth !== 0 &&
+      ctx.fs.readSnapshotTree &&
+      isSimpleExpr &&
+      !hasPruneExpr &&
+      !ctx.trace &&
+      (await printSnapshotTree(ctx, searchPaths[0], expr, {
+        minDepth: minDepth ?? 0,
+        maxDepth: maxDepth ?? ctx.limits.maxTraversalDepth,
+        depthFirst,
+        traversalBudget,
+        appendStdout,
+      }))
+    ) {
+      return finish();
+    }
 
     // Process each search path
     for (let searchPath of searchPaths) {
@@ -1072,13 +1097,7 @@ export const findCommand: RuntimeCommand = {
       if (result.exitCode !== 0) exitCode = result.exitCode;
     }
 
-    return (
-      output?.build(exitCode) ?? {
-        stdout: stdoutChunks.join(""),
-        stderr: stderrChunks.join(""),
-        exitCode,
-      }
-    );
+    return finish();
   },
 };
 

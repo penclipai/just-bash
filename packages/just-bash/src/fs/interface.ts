@@ -74,6 +74,13 @@ export interface DirentEntry {
   isSymbolicLink: boolean;
 }
 
+/** A physical entry in a readSnapshotTree depth-first preorder listing. */
+export type SnapshotTreeEntry = readonly [
+  depth: number,
+  name: string,
+  type: "f" | "d" | "l" | "?",
+];
+
 /**
  * Stat result from the filesystem
  */
@@ -252,6 +259,20 @@ export interface IFileSystem {
    * @throws Error if path doesn't exist or is not a directory
    */
   readdirWithFileTypes?(path: string): Promise<DirentEntry[]>;
+
+  /**
+   * JSON-encoded SnapshotTreeEntry[] for an already available physical subtree,
+   * root first at depth zero, children in readdir order. Primitive data can
+   * pass through a revocable command context without a per-node copy. Return undefined
+   * for incomplete, unreadable, or stale trees so callers use normal FS reads.
+   * A maxDepth may truncate the view at that depth (root 0), without
+   * requiring its directories to be readable below that boundary.
+   * Must enforce the same path scope and permissions as lstat and readdir.
+   */
+  readSnapshotTree?(
+    path: string,
+    maxDepth?: number,
+  ): Promise<string | undefined>;
 
   /**
    * Remove a file or directory
