@@ -18,6 +18,7 @@ import {
   type LongListingOptions,
   longListing,
 } from "./ls-format.js";
+import { listSnapshotTree } from "./ls-tree-walk.js";
 
 function appendLsOutput(
   ctx: RuntimeCommandContext,
@@ -289,6 +290,20 @@ export const lsCommand: RuntimeCommand = {
       path: string,
       showHeader: boolean,
     ): Promise<void> => {
+      if (recursive && !longFormat && !classifyFiles && sortKey === "name") {
+        const snapshot = await listSnapshotTree(ctx, path, {
+          showAll,
+          showAlmostAll,
+          reverse,
+          traversalBudget,
+        });
+        if (snapshot) {
+          stdout = appendLsOutput(ctx, stdout, snapshot.stdout);
+          stderr = appendLsOutput(ctx, stderr, snapshot.stderr);
+          if (snapshot.exitCode !== 0) exitCode = snapshot.exitCode;
+          return;
+        }
+      }
       const result = await listPath(
         path,
         ctx,
