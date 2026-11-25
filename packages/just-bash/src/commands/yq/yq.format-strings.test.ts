@@ -187,11 +187,11 @@ describe("yq format strings", () => {
       expect(result.stdout).toBe("null\n");
     });
 
-    it("@sh on non-string returns null", async () => {
+    it("@sh on a number uses its text like jq 1.7", async () => {
       const bash = new Bash();
       const result = await bash.exec("echo '123' | yq -o json '@sh'");
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("null\n");
+      expect(result.stdout).toBe('"123"\n');
     });
 
     it("@text on null returns empty string", async () => {

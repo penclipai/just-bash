@@ -6,6 +6,7 @@
 
 import type { QueryValue } from "../value-operations.js";
 import { getValueDepth } from "../value-operations.js";
+import { formatSh } from "./sh-format.js";
 
 // Default max depth for nested structures
 const DEFAULT_MAX_JQ_DEPTH = 2000;
@@ -143,11 +144,7 @@ export function evalFormatBuiltin(
       return [null];
 
     case "@sh":
-      if (typeof value === "string") {
-        // Shell escape: wrap in single quotes, escape any single quotes
-        return [`'${value.replace(/'/g, "'\\''")}'`];
-      }
-      return [null];
+      return [formatSh(value)];
 
     case "@text":
       if (typeof value === "string") return [value];
