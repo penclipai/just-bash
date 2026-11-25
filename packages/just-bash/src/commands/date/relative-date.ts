@@ -1,4 +1,5 @@
 import { nullPrototype } from "../query-engine/safe-object.js";
+
 /**
  * GNU-style relative items for `date -d` (parse_datetime subset):
  * `[+-]N unit`, `N unit ago`, `next|last|this unit`, bare `unit`,
@@ -50,6 +51,43 @@ const ORDINALS = nullPrototype<Record<string, number>>({
 });
 
 const TIME_ONLY = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
+/** A base token that ends in a time of day without its own zone. */
+const ENDS_WITH_TIME = /(?:^|T)\d{1,2}:\d{2}(?::\d{2})?$/i;
+
+/**
+ * GNU reads a signed number right after a zoneless time of day as a UTC
+ * offset (`12:00 +3 hours` is 12:00 at +03 plus one hour). Returns the
+ * offset in minutes, NaN for an out-of-range zone, or undefined.
+ */
+function zoneAfterTime(word: string): number | undefined {
+  const m = /^([+-])(?:(\d{1,4})|(\d{1,2}):(\d{2}))$/.exec(word);
+  if (!m) return undefined;
+  let hours: number;
+  let minutes: number;
+  if (m[2] !== undefined) {
+    const n = Number(m[2]);
+    [hours, minutes] =
+      m[2].length <= 2 ? [n, 0] : [Math.floor(n / 100), n % 100];
+  } else {
+    [hours, minutes] = [Number(m[3]), Number(m[4])];
+  }
+  if (hours > 24 || minutes > 59) return Number.NaN;
+  return (m[1] === "-" ? -1 : 1) * (hours * 60 + minutes);
+}
+
+/** GNU accepts a detached sign: `2024-01-01 + 2 days`, `now - 1 hour`. */
+function joinDetachedSigns(words: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    if (
+      (words[i] === "+" || words[i] === "-") &&
+      /^\d/.test(words[i + 1] ?? "")
+    )
+      out.push(words[i] + words[++i]);
+    else out.push(words[i]);
+  }
+  return out;
+}
 
 function unitOf(word: string | undefined): [UnitKind, number] | undefined {
   if (!word) return undefined;
@@ -81,17 +119,29 @@ export function parseRelativeDate(
   input: string,
   hooks: RelativeDateHooks,
 ): Date | null | undefined {
-  const original = input.trim().split(/\s+/);
+  const original = joinDetachedSigns(input.trim().split(/\s+/));
   const words = original.map((w) => w.toLowerCase());
   const rel: Record<UnitKind, number> = { y: 0, m: 0, d: 0, s: 0 };
   const items: Array<[UnitKind, number]> = [];
   let agoFrom = 0;
   let weekday: { day: number; ordinal: number } | undefined;
   let found = false;
+  let zone: number | undefined;
+  let baseEnd = -2;
   const base: string[] = [];
 
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
+    const lastBase = base[base.length - 1];
+    const offset =
+      zone === undefined && baseEnd === i - 1 && ENDS_WITH_TIME.test(lastBase)
+        ? zoneAfterTime(word)
+        : undefined;
+    if (offset !== undefined) {
+      if (Number.isNaN(offset)) return null;
+      zone = offset;
+      continue;
+    }
     const num = /^([+-]?\d+)([a-z]+)?$/.exec(word);
     const numUnit = num && unitOf(num[2] ?? words[i + 1]);
     if (num && numUnit) {
@@ -128,9 +178,10 @@ export function parseRelativeDate(
       found = true;
     } else {
       base.push(original[i]);
+      baseEnd = i;
     }
   }
-  if (!found) return undefined;
+  if (!found && zone === undefined) return undefined;
   for (const [kind, n] of items) rel[kind] += n;
 
   const baseStr = base.join(" ");
@@ -147,6 +198,11 @@ export function parseRelativeDate(
     wall = parsed && hooks.toWall(parsed);
   }
   if (!wall || Number.isNaN(wall.getTime())) return null;
+  if (zone !== undefined) {
+    // The base wall clock was in `zone`; continue from the display zone.
+    wall = hooks.toWall(new Date(wall.getTime() - zone * 60_000));
+    if (!wall || Number.isNaN(wall.getTime())) return null;
+  }
 
   // GNU ignores the day of week when an explicit date is given.
   if (weekday && (!baseStr || time)) {

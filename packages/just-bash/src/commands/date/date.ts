@@ -11,6 +11,7 @@ import type {
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { formatStrftime } from "../printf/strftime.js";
 import { parseRelativeDate } from "./relative-date.js";
+import { inCommandZone } from "./zoneless-base.js";
 
 const dateHelp = {
   name: "date",
@@ -157,8 +158,8 @@ export function parseDate(s: string, tz?: string): Date | null {
     }
   }
   const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d;
-  return null;
+  if (Number.isNaN(d.getTime())) return null;
+  return tz ? inCommandZone(s, d, tz, parseBareISOInTimezone) : d;
 }
 
 export const dateCommand: RuntimeCommand = {
