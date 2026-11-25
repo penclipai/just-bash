@@ -17,7 +17,9 @@ describe("missing command hints", () => {
   it("explains package managers and native tools", async () => {
     const env = new Bash({ commands: ["echo"] });
     const r = await env.exec("pnpm i; sudo ls");
-    expect(r.stderr).toContain("bash: pnpm: command not found\nhint: packages");
+    expect(r.stderr).toContain(
+      "bash: pnpm: command not found\nhint: pnpm is not available in this sandbox and packages cannot be installed; run package.json scripts with `npm run <script>`",
+    );
     expect(r.stderr).toContain(
       "bash: sudo: command not found\nhint: this browser sandbox",
     );

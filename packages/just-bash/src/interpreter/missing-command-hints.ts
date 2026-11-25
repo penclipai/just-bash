@@ -22,8 +22,16 @@ const HINTS: Record<string, string> = Object.assign(Object.create(null), {
 const PACKAGE_MANAGER =
   "packages cannot be installed in this sandbox; run scripts with `node` " +
   "(existing node_modules can be required)";
-for (const name of ["npm", "npx", "pnpm", "yarn", "bun", "deno"]) {
+for (const name of ["npm", "npx", "deno"]) {
   HINTS[name] = PACKAGE_MANAGER;
+}
+// Automa provides `npm run`/`npm test`/`npm start` for package.json scripts
+// (no installs); other package managers are pointed at it.
+for (const name of ["pnpm", "yarn", "bun"]) {
+  HINTS[name] =
+    `${name} is not available in this sandbox and packages cannot be installed; ` +
+    "run package.json scripts with `npm run <script>` (or `npm test`) and " +
+    "files with `node file.js`";
 }
 
 const NATIVE =
