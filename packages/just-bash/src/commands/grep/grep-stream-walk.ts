@@ -215,6 +215,17 @@ async function* readBatches(
   if (batch.length) yield batch;
 }
 
+async function isDirectoryOperand(
+  ctx: RuntimeCommandContext,
+  file: string,
+): Promise<boolean> {
+  try {
+    return (await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, file))).isDirectory;
+  } catch {
+    return true;
+  }
+}
+
 export async function grepFileBatches(
   ctx: RuntimeCommandContext,
   files: string[],
@@ -231,9 +242,11 @@ export async function grepFileBatches(
   if (options.recursive) {
     return {
       batches: readBatches(names, prefix),
+      // GNU names files under -r unless the only operand is a plain file.
       showFilename:
         !options.noFilename &&
-        (files.length > 1 || files.some((f) => f !== "-")),
+        (files.length > 1 ||
+          (files[0] !== "-" && (await isDirectoryOperand(ctx, files[0])))),
     };
   }
   // Non-recursive glob expansion determines whether GNU prefixes one or
