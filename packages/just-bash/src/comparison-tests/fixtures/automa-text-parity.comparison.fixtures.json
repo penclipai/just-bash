@@ -1,0 +1,436 @@
+{
+  "02465c4a2900979d": {
+    "command": "TZ=UTC date -d '2024-02-28 + 2 days' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-03-01 00:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1372c31fc8814252": {
+    "command": "printf 'a\\n\\nb\\n' | awk '!length {print NR}'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1875278d64ce7764": {
+    "command": "jq -r '@base64 \"n=\\(.items[0].name)\"' data.json",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "n=YQ==\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2112da97af4e98e6": {
+    "command": "grep -rc function src/sub",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "src/sub/b.js:1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "21d515f519220170": {
+    "command": "TZ=UTC date -d '2024-01-01 12:00 3 hours' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-01 15:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "21e20a71cb5b403d": {
+    "command": "TZ=UTC date -d '2024-01-01 12:00:00 -2 days' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-02 14:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2bf3a62356d99f55": {
+    "command": "TZ=UTC date -d '2024-12-31 23:59:59 +1 second' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-12-31 23:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "30fe90dadbb19c81": {
+    "command": "awk -v RS=';' '{print NR\": \"$0}' rs.txt",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "1: a b\n2: c d\n3: e f\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "398189eed427ecb2": {
+    "command": "awk -v FS=, -v OFS='\\t' '{$1=$1; print}' data.csv",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "id\tname\tqty\n1\tapple\t10\n2\tpear\t5\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "42f2455c2a72ab41": {
+    "command": "grep -r function src/sub/b.js src/a.js",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "src/sub/b.js:function b() {}\nsrc/a.js:function a() {}\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "64378258328c51af": {
+    "command": "TZ=UTC date -d '2024-01-01 next friday' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-01 00:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "644dd1a874d4c760": {
+    "command": "awk -v OFS=- -F, '{print $1,$2}' data.csv",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "id-name\n1-apple\n2-pear\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "71d5cdcd82efba44": {
+    "command": "jq -r '@sh \"x \\(1) \\(null)\"' data.json",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "x 1 null\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "727480c4f31c3f27": {
+    "command": "TZ=UTC date -d '2024-01-01 12:00 + 3 hours' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-01 10:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "796c4a6afb5f56fc": {
+    "command": "TZ=Asia/Tokyo date -d 'Jan 5 2024 10:00' '+%F %T %z'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-05 10:00:00 +0900\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "83fff9c80fcce805": {
+    "command": "date -u -d '5 Jan 2024 2 weeks ago' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2023-12-22 00:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8cdd36b2a18036c2": {
+    "command": "TZ=UTC date -d 'Jan 5 2024 +1 day' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-06 00:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8db027a47ad1d861": {
+    "command": "jq -r '.items | map(.name, .n) | @sh' data.json",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "'a' 1 'b,c' 2\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "92c3a09fd65bc3fc": {
+    "command": "printf 'ab\\nabcdef\\n' | awk '{print length, length $0}'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2 2ab\n6 6abcdef\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9d99aaf63dafff50": {
+    "command": "TZ=UTC date -d '2024-01-01 - 1 day' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2023-12-31 00:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a1e5a24edf8645e4": {
+    "command": "awk -v ORS='|' -F, '{print $1}' data.csv",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "id|1|2|",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "acc6e2cd81dfae3b": {
+    "command": "grep -rn function src/ | sort",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "src/a.js:1:function a() {}\nsrc/sub/b.js:1:function b() {}\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b66d9ec2c05e5625": {
+    "command": "TZ=UTC date -d '2024-01-01 yesterday' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2023-12-31 00:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "bae3837093e540a1": {
+    "command": "TZ=UTC date -d '2024-01-01 12:00 +3 hours' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-01 10:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "bd7100020a8ebb38": {
+    "command": "printf 'ab\\nabcdef\\n' | awk 'length > 3'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "abcdef\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "cb8be6baa597facd": {
+    "command": "TZ=UTC date -d '2024-01-01 12:00 UTC +3 hours' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-01 15:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "cdb183d345a9acb0": {
+    "command": "jq -r '@sh \"rm \\(.items | map(.name))\"' data.json",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "rm 'a' 'b,c'\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d0deaa385a4967e5": {
+    "command": "jq -r '.items[] | @csv \"\\([.name, .n])\"' data.json",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "\"a\",1\n\"b,c\",2\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e2833cec35724c51": {
+    "command": "TZ=UTC date -d '2024-01-31 3 days ago' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-28 00:00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fc02416b392fee39": {
+    "command": "grep -r function src/sub/b.js",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "function b() {}\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fdbe31df0428ba06": {
+    "command": "TZ=UTC date -d '2024-01-01 12:00 +130 hours' '+%F %T'",
+    "files": {
+      "data.csv": "id,name,qty\n1,apple,10\n2,pear,5\n",
+      "rs.txt": "a b;c d;e f",
+      "data.json": "{\"items\":[{\"name\":\"a\",\"n\":1},{\"name\":\"b,c\",\"n\":2}]}",
+      "src/a.js": "function a() {}\n",
+      "src/sub/b.js": "function b() {}\n"
+    },
+    "stdout": "2024-01-01 11:30:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
